@@ -8,10 +8,35 @@ type TranscriptMessage = {
 };
 
 export type SessionTranscriptUpdateLike = {
+  sessionFile?: string;
   sessionKey?: string;
   message?: unknown;
   messageId?: string;
 };
+
+type BoundSessionReference = {
+  sessionFile?: string;
+  sessionKey?: string;
+};
+
+export function matchesBoundSessionUpdate(
+  update: SessionTranscriptUpdateLike,
+  boundSession: BoundSessionReference,
+): boolean {
+  const boundSessionKey =
+    typeof boundSession.sessionKey === "string" ? boundSession.sessionKey.trim() : "";
+  const updateSessionKey =
+    typeof update.sessionKey === "string" ? update.sessionKey.trim() : "";
+  if (boundSessionKey && updateSessionKey && boundSessionKey === updateSessionKey) {
+    return true;
+  }
+
+  const boundSessionFile =
+    typeof boundSession.sessionFile === "string" ? boundSession.sessionFile.trim() : "";
+  const updateSessionFile =
+    typeof update.sessionFile === "string" ? update.sessionFile.trim() : "";
+  return Boolean(boundSessionFile && updateSessionFile && boundSessionFile === updateSessionFile);
+}
 
 export function extractAssistantText(message: unknown): string | null {
   if (!message || typeof message !== "object") {
@@ -118,6 +143,7 @@ export function chunkSmsText(params: {
 
 type SmsOutboundMirrorParams = {
   logger: PluginLogger;
+  resolveBoundSession: () => BoundSessionReference;
   pluginConfig: ResolvedSmsBridgePluginConfig;
   transport: SmsTransport;
 };
@@ -130,7 +156,7 @@ export class SmsOutboundMirror {
   constructor(private readonly params: SmsOutboundMirrorParams) {}
 
   handleTranscriptUpdate(update: SessionTranscriptUpdateLike): void {
-    if (update.sessionKey !== this.params.pluginConfig.binding.sessionKey) {
+    if (!matchesBoundSessionUpdate(update, this.params.resolveBoundSession())) {
       return;
     }
     if (update.messageId && this.sentMessageIds.has(update.messageId)) {

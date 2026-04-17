@@ -1,5 +1,23 @@
-import { describe, expect, it } from "vitest";
-import { chunkSmsText, extractAssistantText } from "./outbound.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  SmsOutboundMirror,
+  chunkSmsText,
+  extractAssistantText,
+  matchesBoundSessionUpdate,
+} from "./outbound.js";
+
+function createPluginConfig() {
+  return {
+    binding: {
+      phoneNumber: "+447981839872",
+      sessionKey: "agent:main:sms:android-gateway",
+    },
+    outbound: {
+      maxSegmentChars: 160,
+      maxSegmentsPerReply: 3,
+    },
+  };
+}
 
 describe("extractAssistantText", () => {
   it("extracts plain assistant text content", () => {
@@ -21,6 +39,65 @@ describe("extractAssistantText", () => {
         content: [{ type: "text", text: "hello" }],
       }),
     ).toBeNull();
+  });
+});
+
+describe("matchesBoundSessionUpdate", () => {
+  it("matches updates by session key", () => {
+    expect(
+      matchesBoundSessionUpdate(
+        { sessionKey: "agent:main:sms:android-gateway" },
+        { sessionKey: "agent:main:sms:android-gateway", sessionFile: "/tmp/a.jsonl" },
+      ),
+    ).toBe(true);
+  });
+
+  it("matches updates by session file when session key is absent", () => {
+    expect(
+      matchesBoundSessionUpdate(
+        { sessionFile: "/tmp/sms-session.jsonl" },
+        {
+          sessionKey: "agent:main:sms:android-gateway",
+          sessionFile: "/tmp/sms-session.jsonl",
+        },
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("SmsOutboundMirror", () => {
+  it("mirrors gateway-injected assistant replies identified by session file", async () => {
+    const sendText = vi.fn(async () => ({ accepted: true }));
+    const mirror = new SmsOutboundMirror({
+      logger: {
+        error: vi.fn(),
+      } as never,
+      pluginConfig: createPluginConfig() as never,
+      resolveBoundSession: () => ({
+        sessionKey: "agent:main:sms:android-gateway",
+        sessionFile: "/tmp/sms-session.jsonl",
+      }),
+      transport: {
+        sendText,
+      },
+    });
+
+    mirror.handleTranscriptUpdate({
+      sessionFile: "/tmp/sms-session.jsonl",
+      messageId: "msg-123",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "status output" }],
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(sendText).toHaveBeenCalledWith({
+        idempotencyKey: "msg-123",
+        text: "status output",
+        to: "+447981839872",
+      });
+    });
   });
 });
 

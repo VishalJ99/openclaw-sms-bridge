@@ -1,6 +1,7 @@
 import { buffer } from "node:stream/consumers";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { OpenClawPluginApi, OpenClawConfig, PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
+import { resolveBoundSessionState } from "./binding.js";
 import type { ResolvedSmsBridgePluginConfig } from "./config.js";
 import { SmsInboundHandler } from "./inbound.js";
 import { SmsOutboundMirror } from "./outbound.js";
@@ -28,6 +29,12 @@ export class SmsInboxBridgeService {
     this.outboundMirror = new SmsOutboundMirror({
       logger: this.params.logger,
       pluginConfig: this.params.pluginConfig,
+      resolveBoundSession: () =>
+        resolveBoundSessionState({
+          config: this.params.config,
+          pluginConfig: this.params.pluginConfig,
+          runtime: this.params.runtime,
+        }),
       transport: this.transport,
     });
     this.inboundHandler = new SmsInboundHandler({

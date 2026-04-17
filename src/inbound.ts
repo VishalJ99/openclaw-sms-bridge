@@ -6,6 +6,7 @@ import {
   persistBoundSessionState,
   resolveBoundSessionState,
 } from "./binding.js";
+import { routeGatewayTextSlashCommandIfSupported } from "./slash-commands.js";
 import type { InboundSmsEvent } from "./transport/types.js";
 
 type PluginRuntime = OpenClawPluginApi["runtime"];
@@ -88,6 +89,28 @@ export class SmsInboundHandler {
       state: boundSession,
       updatedAt: event.receivedAt,
     });
+
+    const routedSlashCommand = await routeGatewayTextSlashCommandIfSupported({
+      agentId: boundSession.agentId,
+      config: this.params.config,
+      message: event.text,
+      runId: event.externalId,
+      sessionKey: boundSession.sessionKey,
+    });
+    if (routedSlashCommand) {
+      await persistBoundSessionState({
+        config: this.params.config,
+        pluginConfig: this.params.pluginConfig,
+        runtime: this.params.runtime,
+        state: resolveBoundSessionState({
+          config: this.params.config,
+          pluginConfig: this.params.pluginConfig,
+          runtime: this.params.runtime,
+        }),
+        updatedAt: event.receivedAt,
+      });
+      return;
+    }
 
     const workspaceDir = this.params.runtime.agent.resolveAgentWorkspaceDir(
       this.params.config,

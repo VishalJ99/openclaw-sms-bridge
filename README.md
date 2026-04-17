@@ -23,6 +23,7 @@ Included in this scaffold:
 - parent-session binding helpers
 - inbound queueing into a bound OpenClaw session
 - outbound transcript mirroring from the bound session
+- native OpenClaw text slash commands over SMS when the inbound text matches a real `/command`
 
 Not included in V1:
 
@@ -150,3 +151,4 @@ pnpm test
 - Accepted architecture is recorded in [decisions/human/2026-04-16-session-bound-sms-inbox-bridge.md](./decisions/human/2026-04-16-session-bound-sms-inbox-bridge.md).
 - Unknown sender handling and exact long-message behavior remain pending review in [decisions/agent/pending/](./decisions/agent/pending/).
 - The bridge mirrors assistant transcript messages from the bound parent session. It does not mirror child-session transcripts directly.
+- Valid SMS text commands such as `/status` and `/new` now go through the same gateway command path as the TUI. Unknown `/...` inputs still fall back to normal prompt handling.
