@@ -19,11 +19,34 @@ describe("resolveSmsBridgePluginConfig", () => {
       sessionKey: "agent:main:main",
     });
     expect(resolved.transport.provider).toBe("android-gateway");
+    expect(resolved.transport.serverMode).toBe("cloud");
     expect(resolved.transport.webhookPath).toBe("/plugins/sms-inbox-bridge/webhook");
     expect(resolved.outbound).toEqual({
       maxSegmentChars: 300,
       maxSegmentsPerReply: 6,
     });
+  });
+
+  it("allows local server mode without a webhook signing key", () => {
+    const resolved = resolveSmsBridgePluginConfig({
+      binding: {
+        phoneNumber: "+15551234567",
+      },
+      transport: {
+        serverMode: "local",
+        apiBaseUrl: "http://127.0.0.1:18080",
+        username: "sms",
+        password: "pass",
+      },
+    });
+
+    expect(resolved.transport).toMatchObject({
+      serverMode: "local",
+      apiBaseUrl: "http://127.0.0.1:18080",
+      username: "sms",
+      password: "pass",
+    });
+    expect(resolved.transport.webhookSigningKey).toBeUndefined();
   });
 
   it("throws when required transport credentials are missing", () => {
@@ -38,5 +61,19 @@ describe("resolveSmsBridgePluginConfig", () => {
         },
       }),
     ).toThrow("transport.username");
+  });
+
+  it("requires a webhook signing key in cloud mode", () => {
+    expect(() =>
+      resolveSmsBridgePluginConfig({
+        binding: {
+          phoneNumber: "+15551234567",
+        },
+        transport: {
+          username: "user",
+          password: "pass",
+        },
+      }),
+    ).toThrow("transport.webhookSigningKey");
   });
 });

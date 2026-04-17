@@ -11,6 +11,7 @@ describe("AndroidGatewayTransport.parseWebhook", () => {
     const transport = new AndroidGatewayTransport({
       config: {
         provider: "android-gateway",
+        serverMode: "cloud",
         apiBaseUrl: "https://api.sms-gate.app/3rdparty/v1",
         username: "user",
         password: "pass",
@@ -62,6 +63,7 @@ describe("AndroidGatewayTransport.parseWebhook", () => {
     const transport = new AndroidGatewayTransport({
       config: {
         provider: "android-gateway",
+        serverMode: "cloud",
         apiBaseUrl: "https://api.sms-gate.app/3rdparty/v1",
         username: "user",
         password: "pass",
@@ -93,5 +95,52 @@ describe("AndroidGatewayTransport.parseWebhook", () => {
         },
       }),
     ).toThrow("signature");
+  });
+
+  it("accepts an unsigned sms:received payload in local mode", () => {
+    const transport = new AndroidGatewayTransport({
+      config: {
+        provider: "android-gateway",
+        serverMode: "local",
+        apiBaseUrl: "http://127.0.0.1:18080",
+        username: "sms",
+        password: "pass",
+        webhookPath: "/plugins/sms-inbox-bridge/webhook",
+        sendPriority: 100,
+        deviceActiveWithinHours: 12,
+        skipPhoneValidation: true,
+      },
+    });
+
+    const body = JSON.stringify({
+      deviceId: "device-1",
+      event: "sms:received",
+      id: "event-1",
+      payload: {
+        message: "hello from phone",
+        sender: "+15551234567",
+        recipient: "+15557654321",
+        simNumber: 1,
+        receivedAt: "2026-04-16T12:34:56.000Z",
+      },
+    });
+
+    const parsed = transport.parseWebhook({
+      rawBody: body,
+      headers: {},
+    });
+
+    expect(parsed).toEqual({
+      kind: "inbound-sms",
+      event: {
+        deviceId: "device-1",
+        externalId: "event-1",
+        from: "+15551234567",
+        receivedAt: Date.parse("2026-04-16T12:34:56.000Z"),
+        simNumber: 1,
+        text: "hello from phone",
+        to: "+15557654321",
+      },
+    });
   });
 });

@@ -8,6 +8,7 @@ export type SmsBridgePluginConfig = {
   };
   transport?: {
     provider?: "android-gateway";
+    serverMode?: "cloud" | "local";
     apiBaseUrl?: string;
     username?: string;
     password?: string;
@@ -33,11 +34,12 @@ export type ResolvedSmsBridgePluginConfig = {
   };
   transport: {
     provider: "android-gateway";
+    serverMode: "cloud" | "local";
     apiBaseUrl: string;
     username: string;
     password: string;
     webhookPath: string;
-    webhookSigningKey: string;
+    webhookSigningKey?: string;
     deviceId?: string;
     simNumber?: number;
     sendPriority: number;
@@ -52,6 +54,7 @@ export type ResolvedSmsBridgePluginConfig = {
 };
 
 const DEFAULT_SESSION_KEY = "agent:main:main";
+const DEFAULT_SERVER_MODE = "cloud";
 const DEFAULT_API_BASE_URL = "https://api.sms-gate.app/3rdparty/v1";
 const DEFAULT_WEBHOOK_PATH = "/plugins/sms-inbox-bridge/webhook";
 const DEFAULT_MAX_SEGMENT_CHARS = 300;
@@ -72,6 +75,7 @@ const SmsBridgePluginConfigSchemaSource = z.strictObject({
   transport: z
     .strictObject({
       provider: z.literal("android-gateway").optional(),
+      serverMode: z.enum(["cloud", "local"]).optional(),
       apiBaseUrl: nonEmptyTrimmedString(
         "transport.apiBaseUrl must be a non-empty string",
       ).optional(),
@@ -212,6 +216,7 @@ export function resolveSmsBridgePluginConfig(
   if (provider !== "android-gateway") {
     throw new Error(`Unsupported sms-inbox-bridge transport provider: ${provider}`);
   }
+  const serverMode = transport.serverMode ?? DEFAULT_SERVER_MODE;
 
   return {
     binding: {
@@ -222,14 +227,21 @@ export function resolveSmsBridgePluginConfig(
     },
     transport: {
       provider,
+      serverMode,
       apiBaseUrl: transport.apiBaseUrl ?? DEFAULT_API_BASE_URL,
       username: requireField(transport.username, "transport.username"),
       password: requireField(transport.password, "transport.password"),
       webhookPath: normalizeWebhookPath(transport.webhookPath),
-      webhookSigningKey: requireField(
-        transport.webhookSigningKey,
-        "transport.webhookSigningKey",
-      ),
+      ...(serverMode === "cloud"
+        ? {
+            webhookSigningKey: requireField(
+              transport.webhookSigningKey,
+              "transport.webhookSigningKey",
+            ),
+          }
+        : transport.webhookSigningKey
+          ? { webhookSigningKey: transport.webhookSigningKey }
+          : {}),
       ...(transport.deviceId ? { deviceId: transport.deviceId } : {}),
       ...(typeof transport.simNumber === "number" ? { simNumber: transport.simNumber } : {}),
       sendPriority: transport.sendPriority ?? DEFAULT_SEND_PRIORITY,

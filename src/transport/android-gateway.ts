@@ -117,18 +117,24 @@ export class AndroidGatewayTransport implements SmsTransport {
   constructor(private readonly params: { config: AndroidGatewayTransportConfig }) {}
 
   parseWebhook(request: RawWebhookRequest): ParsedSmsWebhook {
-    const signature = request.headers["x-signature"];
-    const timestamp = request.headers["x-timestamp"];
-    if (typeof signature !== "string" || typeof timestamp !== "string") {
-      throw new SmsBridgeWebhookError("Missing webhook signature headers", 401);
+    if (this.params.config.serverMode === "cloud") {
+      const signature = request.headers["x-signature"];
+      const timestamp = request.headers["x-timestamp"];
+      if (
+        typeof signature !== "string" ||
+        typeof timestamp !== "string" ||
+        !this.params.config.webhookSigningKey
+      ) {
+        throw new SmsBridgeWebhookError("Missing webhook signature headers", 401);
+      }
+      validateTimestamp(timestamp);
+      verifyHmac({
+        rawBody: request.rawBody,
+        secret: this.params.config.webhookSigningKey,
+        signature,
+        timestamp,
+      });
     }
-    validateTimestamp(timestamp);
-    verifyHmac({
-      rawBody: request.rawBody,
-      secret: this.params.config.webhookSigningKey,
-      signature,
-      timestamp,
-    });
 
     let envelope: AndroidGatewayWebhookEnvelope;
     try {
