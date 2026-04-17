@@ -1,0 +1,55 @@
+{
+  "name": "openclaw-sms-bridge",
+  "version": "0.1.0",
+  "description": "Single-session SMS inbox bridge plugin for OpenClaw",
+  "type": "module",
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "sms",
+    "android",
+    "sms-gateway"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VishalJ99/openclaw-sms-bridge.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.14-beta.1",
+      "minGatewayVersion": "2026.4.14-beta.1"
+    },
+    "build": {
+      "openclawVersion": "2026.4.14-beta.1",
+      "pluginSdkVersion": "2026.4.14-beta.1"
+    }
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.14-beta.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.1",
+    "openclaw": "2026.4.14-beta.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

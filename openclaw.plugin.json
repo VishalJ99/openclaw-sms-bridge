@@ -1,0 +1,93 @@
+{
+  "id": "sms-inbox-bridge",
+  "name": "SMS Inbox Bridge",
+  "description": "Bind one phone number to one OpenClaw session and mirror that session over SMS.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "binding": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sessionKey": {
+            "type": "string",
+            "description": "Bound parent session key. Defaults to agent:main:main."
+          },
+          "phoneNumber": {
+            "type": "string",
+            "description": "Trusted human phone number that owns the inbox."
+          }
+        }
+      },
+      "transport": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": ["android-gateway"]
+          },
+          "apiBaseUrl": {
+            "type": "string",
+            "description": "SMS Gateway API base URL, e.g. https://api.sms-gate.app/3rdparty/v1."
+          },
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "webhookPath": {
+            "type": "string",
+            "description": "Gateway route path that receives sms:received webhooks."
+          },
+          "webhookSigningKey": {
+            "type": "string",
+            "description": "HMAC signing key configured in the Android app."
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "simNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "sendPriority": {
+            "type": "integer",
+            "minimum": -128,
+            "maximum": 127
+          },
+          "ttlSeconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "deviceActiveWithinHours": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipPhoneValidation": {
+            "type": "boolean"
+          }
+        }
+      },
+      "outbound": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxSegmentChars": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 1000
+          },
+          "maxSegmentsPerReply": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        }
+      }
+    }
+  }
+}

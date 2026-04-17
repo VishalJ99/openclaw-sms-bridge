@@ -1,0 +1,4 @@
+- **bound session** — the single OpenClaw parent session that the bridge reads from and writes to, keyed by `binding.sessionKey`.
+- **trusted phone number** — the one SMS sender authorized to post inbound turns into the bound session.
+- **Android gateway transport** — the SMS Gateway for Android-backed transport that sends SMS and verifies signed inbound webhooks.
+- **outbound mirror** — the component that mirrors assistant transcript text from the bound session back to the trusted phone number.
