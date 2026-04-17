@@ -115,6 +115,12 @@ export class SmsInboundHandler {
       sessionFile: boundSession.sessionFile,
       sessionId: boundSession.sessionId,
       sessionKey: boundSession.sessionKey,
+      ...(boundSession.modelProvider && boundSession.modelId
+        ? {
+            provider: boundSession.modelProvider,
+            model: boundSession.modelId,
+          }
+        : {}),
       timeoutMs: this.params.runtime.agent.resolveAgentTimeoutMs({
         cfg: this.params.config,
       }),
