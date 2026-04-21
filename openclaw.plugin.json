@@ -2,6 +2,7 @@
   "id": "sms-inbox-bridge",
   "name": "SMS Inbox Bridge",
   "description": "Bind one phone number to one OpenClaw session and mirror that session over SMS.",
+  "skills": ["./skills"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -103,6 +104,65 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 60000
+          }
+        }
+      },
+      "alert": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional guarded agent-facing human alert tool.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "sms": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "maxChars": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              }
+            }
+          },
+          "call": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["disabled", "dry-run", "local-http"]
+              },
+              "endpointUrl": {
+                "type": "string",
+                "description": "Local helper endpoint for call alerts. The plugin posts only reason metadata; the helper owns the phone number."
+              },
+              "bearerToken": {
+                "type": "string"
+              },
+              "ringSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60
+              },
+              "cooldownSeconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 86400
+              },
+              "maxPerDay": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 50
+              }
+            }
           }
         }
       },

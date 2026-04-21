@@ -28,6 +28,22 @@ export type SmsBridgePluginConfig = {
     lookbackMinutes?: number;
     safetyLagMs?: number;
   };
+  alert?: {
+    enabled?: boolean;
+    sms?: {
+      enabled?: boolean;
+      maxChars?: number;
+    };
+    call?: {
+      enabled?: boolean;
+      mode?: "disabled" | "dry-run" | "local-http";
+      endpointUrl?: string;
+      bearerToken?: string;
+      ringSeconds?: number;
+      cooldownSeconds?: number;
+      maxPerDay?: number;
+    };
+  };
   outbound?: {
     maxSegmentChars?: number;
     maxSegmentsPerReply?: number;
@@ -61,6 +77,22 @@ export type ResolvedSmsBridgePluginConfig = {
     lookbackMinutes: number;
     safetyLagMs: number;
   };
+  alert: {
+    enabled: boolean;
+    sms: {
+      enabled: boolean;
+      maxChars: number;
+    };
+    call: {
+      enabled: boolean;
+      mode: "disabled" | "dry-run" | "local-http";
+      endpointUrl: string;
+      bearerToken?: string;
+      ringSeconds: number;
+      cooldownSeconds: number;
+      maxPerDay: number;
+    };
+  };
   outbound: {
     maxSegmentChars: number;
     maxSegmentsPerReply: number;
@@ -78,6 +110,11 @@ const DEFAULT_DEVICE_ACTIVE_WITHIN_HOURS = 12;
 const DEFAULT_INBOUND_RECOVERY_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_INBOUND_RECOVERY_LOOKBACK_MINUTES = 60;
 const DEFAULT_INBOUND_RECOVERY_SAFETY_LAG_MS = 5_000;
+const DEFAULT_ALERT_SMS_MAX_CHARS = 300;
+const DEFAULT_CALL_ALERT_ENDPOINT_URL = "http://127.0.0.1:18790/call-alert";
+const DEFAULT_CALL_ALERT_RING_SECONDS = 8;
+const DEFAULT_CALL_ALERT_COOLDOWN_SECONDS = 300;
+const DEFAULT_CALL_ALERT_MAX_PER_DAY = 3;
 
 const nonEmptyTrimmedString = (message: string) =>
   z.string({ error: message }).trim().min(1, { error: message });
@@ -151,6 +188,52 @@ const SmsBridgePluginConfigSchemaSource = z.strictObject({
         .int({ error: "inboundRecovery.safetyLagMs must be a number between 0 and 60000" })
         .min(0, { error: "inboundRecovery.safetyLagMs must be a number between 0 and 60000" })
         .max(60_000, { error: "inboundRecovery.safetyLagMs must be a number between 0 and 60000" })
+        .optional(),
+    })
+    .optional(),
+  alert: z
+    .strictObject({
+      enabled: z.boolean({ error: "alert.enabled must be a boolean" }).optional(),
+      sms: z
+        .strictObject({
+          enabled: z.boolean({ error: "alert.sms.enabled must be a boolean" }).optional(),
+          maxChars: z
+            .number({ error: "alert.sms.maxChars must be a number between 1 and 1000" })
+            .int({ error: "alert.sms.maxChars must be a number between 1 and 1000" })
+            .min(1, { error: "alert.sms.maxChars must be a number between 1 and 1000" })
+            .max(1000, { error: "alert.sms.maxChars must be a number between 1 and 1000" })
+            .optional(),
+        })
+        .optional(),
+      call: z
+        .strictObject({
+          enabled: z.boolean({ error: "alert.call.enabled must be a boolean" }).optional(),
+          mode: z.enum(["disabled", "dry-run", "local-http"]).optional(),
+          endpointUrl: nonEmptyTrimmedString(
+            "alert.call.endpointUrl must be a non-empty string",
+          ).optional(),
+          bearerToken: nonEmptyTrimmedString(
+            "alert.call.bearerToken must be a non-empty string",
+          ).optional(),
+          ringSeconds: z
+            .number({ error: "alert.call.ringSeconds must be a number between 1 and 60" })
+            .int({ error: "alert.call.ringSeconds must be a number between 1 and 60" })
+            .min(1, { error: "alert.call.ringSeconds must be a number between 1 and 60" })
+            .max(60, { error: "alert.call.ringSeconds must be a number between 1 and 60" })
+            .optional(),
+          cooldownSeconds: z
+            .number({ error: "alert.call.cooldownSeconds must be a number between 0 and 86400" })
+            .int({ error: "alert.call.cooldownSeconds must be a number between 0 and 86400" })
+            .min(0, { error: "alert.call.cooldownSeconds must be a number between 0 and 86400" })
+            .max(86_400, { error: "alert.call.cooldownSeconds must be a number between 0 and 86400" })
+            .optional(),
+          maxPerDay: z
+            .number({ error: "alert.call.maxPerDay must be a number between 0 and 50" })
+            .int({ error: "alert.call.maxPerDay must be a number between 0 and 50" })
+            .min(0, { error: "alert.call.maxPerDay must be a number between 0 and 50" })
+            .max(50, { error: "alert.call.maxPerDay must be a number between 0 and 50" })
+            .optional(),
+        })
         .optional(),
     })
     .optional(),
@@ -252,6 +335,9 @@ export function resolveSmsBridgePluginConfig(
   const binding = cfg.binding ?? {};
   const transport = cfg.transport ?? {};
   const inboundRecovery = cfg.inboundRecovery ?? {};
+  const alert = cfg.alert ?? {};
+  const alertSms = alert.sms ?? {};
+  const alertCall = alert.call ?? {};
   const outbound = cfg.outbound ?? {};
 
   const provider = transport.provider ?? "android-gateway";
@@ -301,6 +387,23 @@ export function resolveSmsBridgePluginConfig(
         inboundRecovery.lookbackMinutes ?? DEFAULT_INBOUND_RECOVERY_LOOKBACK_MINUTES,
       safetyLagMs:
         inboundRecovery.safetyLagMs ?? DEFAULT_INBOUND_RECOVERY_SAFETY_LAG_MS,
+    },
+    alert: {
+      enabled: alert.enabled ?? false,
+      sms: {
+        enabled: alertSms.enabled ?? true,
+        maxChars: alertSms.maxChars ?? DEFAULT_ALERT_SMS_MAX_CHARS,
+      },
+      call: {
+        enabled: alertCall.enabled ?? false,
+        mode: alertCall.mode ?? "disabled",
+        endpointUrl: alertCall.endpointUrl ?? DEFAULT_CALL_ALERT_ENDPOINT_URL,
+        ...(alertCall.bearerToken ? { bearerToken: alertCall.bearerToken } : {}),
+        ringSeconds: alertCall.ringSeconds ?? DEFAULT_CALL_ALERT_RING_SECONDS,
+        cooldownSeconds:
+          alertCall.cooldownSeconds ?? DEFAULT_CALL_ALERT_COOLDOWN_SECONDS,
+        maxPerDay: alertCall.maxPerDay ?? DEFAULT_CALL_ALERT_MAX_PER_DAY,
+      },
     },
     outbound: {
       maxSegmentChars: outbound.maxSegmentChars ?? DEFAULT_MAX_SEGMENT_CHARS,

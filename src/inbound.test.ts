@@ -67,6 +67,21 @@ const pluginConfig: ResolvedSmsBridgePluginConfig = {
     lookbackMinutes: 60,
     safetyLagMs: 5_000,
   },
+  alert: {
+    enabled: false,
+    sms: {
+      enabled: true,
+      maxChars: 300,
+    },
+    call: {
+      enabled: false,
+      mode: "disabled",
+      endpointUrl: "http://127.0.0.1:18790/call-alert",
+      ringSeconds: 8,
+      cooldownSeconds: 300,
+      maxPerDay: 3,
+    },
+  },
 };
 
 const config: OpenClawConfig = {

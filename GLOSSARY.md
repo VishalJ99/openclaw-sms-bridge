@@ -2,3 +2,4 @@
 - **trusted phone number** — the one SMS sender authorized to post inbound turns into the bound session.
 - **Android gateway transport** — the SMS Gateway for Android-backed transport that sends SMS and verifies signed inbound webhooks.
 - **outbound mirror** — the component that mirrors assistant transcript text from the bound session back to the trusted phone number.
+- **human alert** — guarded model-callable escalation path that can SMS or ring the configured trusted phone number without exposing arbitrary recipient control.

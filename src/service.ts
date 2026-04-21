@@ -2,6 +2,7 @@ import { buffer } from "node:stream/consumers";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { OpenClawPluginApi, OpenClawConfig, PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { resolveBoundSessionState } from "./binding.js";
+import { createHumanAlertTool } from "./alert.js";
 import type { ResolvedSmsBridgePluginConfig } from "./config.js";
 import { SmsInboundHandler } from "./inbound.js";
 import { SmsOutboundMirror } from "./outbound.js";
@@ -73,6 +74,14 @@ export class SmsInboxBridgeService {
     }
     this.unsubscribeTranscript?.();
     this.unsubscribeTranscript = undefined;
+  }
+
+  createHumanAlertTool() {
+    return createHumanAlertTool({
+      logger: this.params.logger,
+      pluginConfig: this.params.pluginConfig,
+      transport: this.transport,
+    });
   }
 
   private startInboxRecoveryPolling(): void {

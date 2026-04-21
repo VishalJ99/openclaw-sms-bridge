@@ -32,6 +32,10 @@ export default definePluginEntry({
       handler: async (req, res) => await service.handleHttpRequest(req, res),
     });
 
+    if (pluginConfig.alert.enabled) {
+      api.registerTool(service.createHumanAlertTool());
+    }
+
     api.registerService({
       id: `${PLUGIN_ID}:service`,
       start: async () => {

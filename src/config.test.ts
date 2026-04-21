@@ -32,6 +32,21 @@ describe("resolveSmsBridgePluginConfig", () => {
       lookbackMinutes: 60,
       safetyLagMs: 5_000,
     });
+    expect(resolved.alert).toEqual({
+      enabled: false,
+      sms: {
+        enabled: true,
+        maxChars: 300,
+      },
+      call: {
+        enabled: false,
+        mode: "disabled",
+        endpointUrl: "http://127.0.0.1:18790/call-alert",
+        ringSeconds: 8,
+        cooldownSeconds: 300,
+        maxPerDay: 3,
+      },
+    });
   });
 
   it("allows local server mode without a webhook signing key", () => {
@@ -110,6 +125,53 @@ describe("resolveSmsBridgePluginConfig", () => {
       pollIntervalMs: 45_000,
       lookbackMinutes: 120,
       safetyLagMs: 10_000,
+    });
+  });
+
+  it("supports guarded human alert settings", () => {
+    const resolved = resolveSmsBridgePluginConfig({
+      binding: {
+        phoneNumber: "+15551234567",
+      },
+      transport: {
+        serverMode: "local",
+        apiBaseUrl: "http://127.0.0.1:18080",
+        username: "sms",
+        password: "pass",
+      },
+      alert: {
+        enabled: true,
+        sms: {
+          enabled: true,
+          maxChars: 240,
+        },
+        call: {
+          enabled: true,
+          mode: "local-http",
+          endpointUrl: "http://127.0.0.1:18790/call-alert",
+          bearerToken: "secret-token",
+          ringSeconds: 10,
+          cooldownSeconds: 120,
+          maxPerDay: 2,
+        },
+      },
+    });
+
+    expect(resolved.alert).toEqual({
+      enabled: true,
+      sms: {
+        enabled: true,
+        maxChars: 240,
+      },
+      call: {
+        enabled: true,
+        mode: "local-http",
+        endpointUrl: "http://127.0.0.1:18790/call-alert",
+        bearerToken: "secret-token",
+        ringSeconds: 10,
+        cooldownSeconds: 120,
+        maxPerDay: 2,
+      },
     });
   });
 });

@@ -24,6 +24,7 @@ Included in this scaffold:
 - inbound queueing into a bound OpenClaw session
 - outbound transcript mirroring from the bound session
 - native OpenClaw text slash commands over SMS when the inbound text matches a real `/command`
+- guarded `human_alert` tool for agent-triggered SMS or call-alert escalation to the bound human
 
 Not included in V1:
 
@@ -93,11 +94,27 @@ This is the verified setup for the attached Android 6 phone. The Local Server AP
     "skipPhoneValidation": true
   },
   "inboundRecovery": {
-    "enabled": true,
+    "enabled": false,
     "catchUpOnStart": false,
     "pollIntervalMs": 30000,
     "lookbackMinutes": 60,
     "safetyLagMs": 5000
+  },
+  "alert": {
+    "enabled": true,
+    "sms": {
+      "enabled": true,
+      "maxChars": 300
+    },
+    "call": {
+      "enabled": true,
+      "mode": "local-http",
+      "endpointUrl": "http://127.0.0.1:18790/call-alert",
+      "bearerToken": "replace-with-random-local-token",
+      "ringSeconds": 8,
+      "cooldownSeconds": 300,
+      "maxPerDay": 3
+    }
   },
   "outbound": {
     "maxSegmentChars": 300,
@@ -108,9 +125,32 @@ This is the verified setup for the attached Android 6 phone. The Local Server AP
 
 `transport.webhookSigningKey` is required in `cloud` mode and intentionally omitted in `local` mode because the Local Server webhook API currently exposes no signing-key configuration.
 
-`inboundRecovery` is optional. In Local Server mode it periodically requests `/messages/inbox/export` from the phone, which causes SMS Gateway to emit normal `sms:received` webhooks for messages stored in Android's SMS inbox. Enable it for older Android devices where the app can remain online but fail to register its live SMS receiver after reboot or background start.
+`inboundRecovery` is optional and should stay disabled for normal live operation. In Local Server mode it periodically requests `/messages/inbox/export` from the phone, which causes SMS Gateway to emit normal `sms:received` webhooks for messages stored in Android's SMS inbox. Enable it only as a controlled recovery path on older Android devices where the app can remain online but fail to register its live SMS receiver after reboot or background start.
 
 Leave `catchUpOnStart` as `false` for normal use. Turning it on replays the initial `lookbackMinutes` window at gateway startup, which is useful for manual recovery but can duplicate old replies after a restart.
+
+`alert.enabled` registers the `human_alert` tool. The tool never accepts arbitrary recipient numbers; SMS and call-alert escalation always target `binding.phoneNumber`. `alert.call.mode: "local-http"` posts to the repo-local call-alert helper, which owns the ADB call command and reads the trusted number from `~/.openclaw/openclaw.json`.
+
+If your OpenClaw config uses a restrictive tool profile such as `"coding"`, also allow the tool:
+
+```json
+{
+  "tools": {
+    "profile": "coding",
+    "alsoAllow": ["human_alert"]
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "tools": {
+          "alsoAllow": ["human_alert"]
+        }
+      }
+    ]
+  }
+}
+```
 
 ## Setup Order
 
@@ -198,6 +238,29 @@ cd /Users/dross/openclaw-sms-bridge
 pnpm local:usb:start
 openclaw tui --session sms:android-gateway
 ```
+
+## Human Alert Tool
+
+The plugin can expose a model-callable `human_alert` tool when `alert.enabled` is true.
+
+- `action: "sms"` sends the supplied `message` through SMS Gateway to the configured bound phone number.
+- `action: "call_alert"` requests a no-body ring/call through the local helper. It is intended only as an escalation signal.
+- `reason` is required for both actions and is logged for auditability.
+- `call_alert` is bounded by `alert.call.cooldownSeconds` and `alert.call.maxPerDay`.
+
+Start the local call-alert helper from this repo before using `alert.call.mode: "local-http"`:
+
+```bash
+pnpm call-alert:server
+```
+
+For a non-calling smoke test, run the helper in dry-run mode:
+
+```bash
+SMS_BRIDGE_CALL_ALERT_DRY_RUN=1 pnpm call-alert:server
+```
+
+The packaged plugin includes the `reach-dross` skill, which teaches agents when to use SMS versus call-alert escalation. The helper script is intentionally repo-local rather than included in the OpenClaw plugin package, because it owns the ADB shell command.
 
 ## Development
 
