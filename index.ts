@@ -13,6 +13,9 @@ export default definePluginEntry({
     if (api.registrationMode !== "full") {
       return;
     }
+    if (api.pluginConfig === undefined) {
+      return;
+    }
 
     const pluginConfig = resolveSmsBridgePluginConfig(api.pluginConfig);
     const service = new SmsInboxBridgeService({

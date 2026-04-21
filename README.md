@@ -92,6 +92,13 @@ This is the verified setup for the attached Android 6 phone. The Local Server AP
     "deviceActiveWithinHours": 12,
     "skipPhoneValidation": true
   },
+  "inboundRecovery": {
+    "enabled": true,
+    "catchUpOnStart": false,
+    "pollIntervalMs": 30000,
+    "lookbackMinutes": 60,
+    "safetyLagMs": 5000
+  },
   "outbound": {
     "maxSegmentChars": 300,
     "maxSegmentsPerReply": 6
@@ -100,6 +107,10 @@ This is the verified setup for the attached Android 6 phone. The Local Server AP
 ```
 
 `transport.webhookSigningKey` is required in `cloud` mode and intentionally omitted in `local` mode because the Local Server webhook API currently exposes no signing-key configuration.
+
+`inboundRecovery` is optional. In Local Server mode it periodically requests `/messages/inbox/export` from the phone, which causes SMS Gateway to emit normal `sms:received` webhooks for messages stored in Android's SMS inbox. Enable it for older Android devices where the app can remain online but fail to register its live SMS receiver after reboot or background start.
+
+Leave `catchUpOnStart` as `false` for normal use. Turning it on replays the initial `lookbackMinutes` window at gateway startup, which is useful for manual recovery but can duplicate old replies after a restart.
 
 ## Setup Order
 
@@ -202,3 +213,4 @@ pnpm test
 - Unknown sender handling and exact long-message behavior remain pending review in [decisions/agent/pending/](./decisions/agent/pending/).
 - The bridge mirrors assistant transcript messages from the bound parent session. It does not mirror child-session transcripts directly.
 - Valid SMS text commands such as `/status` and `/new` now go through the same gateway command path as the TUI. Unknown `/...` inputs still fall back to normal prompt handling.
+- The Android phone stores normal SMS inbox/sent records and small SMS Gateway logs/queue records. OpenClaw session state and agent transcripts live on the Mac.

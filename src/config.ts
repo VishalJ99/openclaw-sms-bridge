@@ -21,6 +21,13 @@ export type SmsBridgePluginConfig = {
     deviceActiveWithinHours?: number;
     skipPhoneValidation?: boolean;
   };
+  inboundRecovery?: {
+    enabled?: boolean;
+    catchUpOnStart?: boolean;
+    pollIntervalMs?: number;
+    lookbackMinutes?: number;
+    safetyLagMs?: number;
+  };
   outbound?: {
     maxSegmentChars?: number;
     maxSegmentsPerReply?: number;
@@ -47,6 +54,13 @@ export type ResolvedSmsBridgePluginConfig = {
     deviceActiveWithinHours: number;
     skipPhoneValidation: boolean;
   };
+  inboundRecovery: {
+    enabled: boolean;
+    catchUpOnStart: boolean;
+    pollIntervalMs: number;
+    lookbackMinutes: number;
+    safetyLagMs: number;
+  };
   outbound: {
     maxSegmentChars: number;
     maxSegmentsPerReply: number;
@@ -61,6 +75,9 @@ const DEFAULT_MAX_SEGMENT_CHARS = 300;
 const DEFAULT_MAX_SEGMENTS_PER_REPLY = 6;
 const DEFAULT_SEND_PRIORITY = 100;
 const DEFAULT_DEVICE_ACTIVE_WITHIN_HOURS = 12;
+const DEFAULT_INBOUND_RECOVERY_POLL_INTERVAL_MS = 30_000;
+const DEFAULT_INBOUND_RECOVERY_LOOKBACK_MINUTES = 60;
+const DEFAULT_INBOUND_RECOVERY_SAFETY_LAG_MS = 5_000;
 
 const nonEmptyTrimmedString = (message: string) =>
   z.string({ error: message }).trim().min(1, { error: message });
@@ -111,6 +128,30 @@ const SmsBridgePluginConfigSchemaSource = z.strictObject({
         .min(0, { error: "transport.deviceActiveWithinHours must be a number >= 0" })
         .optional(),
       skipPhoneValidation: z.boolean({ error: "transport.skipPhoneValidation must be a boolean" }).optional(),
+    })
+    .optional(),
+  inboundRecovery: z
+    .strictObject({
+      enabled: z.boolean({ error: "inboundRecovery.enabled must be a boolean" }).optional(),
+      catchUpOnStart: z.boolean({ error: "inboundRecovery.catchUpOnStart must be a boolean" }).optional(),
+      pollIntervalMs: z
+        .number({ error: "inboundRecovery.pollIntervalMs must be a number between 5000 and 3600000" })
+        .int({ error: "inboundRecovery.pollIntervalMs must be a number between 5000 and 3600000" })
+        .min(5_000, { error: "inboundRecovery.pollIntervalMs must be a number between 5000 and 3600000" })
+        .max(3_600_000, { error: "inboundRecovery.pollIntervalMs must be a number between 5000 and 3600000" })
+        .optional(),
+      lookbackMinutes: z
+        .number({ error: "inboundRecovery.lookbackMinutes must be a number between 1 and 1440" })
+        .int({ error: "inboundRecovery.lookbackMinutes must be a number between 1 and 1440" })
+        .min(1, { error: "inboundRecovery.lookbackMinutes must be a number between 1 and 1440" })
+        .max(1_440, { error: "inboundRecovery.lookbackMinutes must be a number between 1 and 1440" })
+        .optional(),
+      safetyLagMs: z
+        .number({ error: "inboundRecovery.safetyLagMs must be a number between 0 and 60000" })
+        .int({ error: "inboundRecovery.safetyLagMs must be a number between 0 and 60000" })
+        .min(0, { error: "inboundRecovery.safetyLagMs must be a number between 0 and 60000" })
+        .max(60_000, { error: "inboundRecovery.safetyLagMs must be a number between 0 and 60000" })
+        .optional(),
     })
     .optional(),
   outbound: z
@@ -210,6 +251,7 @@ export function resolveSmsBridgePluginConfig(
   const cfg = parsed.data as SmsBridgePluginConfig;
   const binding = cfg.binding ?? {};
   const transport = cfg.transport ?? {};
+  const inboundRecovery = cfg.inboundRecovery ?? {};
   const outbound = cfg.outbound ?? {};
 
   const provider = transport.provider ?? "android-gateway";
@@ -249,6 +291,16 @@ export function resolveSmsBridgePluginConfig(
       deviceActiveWithinHours:
         transport.deviceActiveWithinHours ?? DEFAULT_DEVICE_ACTIVE_WITHIN_HOURS,
       skipPhoneValidation: transport.skipPhoneValidation ?? true,
+    },
+    inboundRecovery: {
+      enabled: inboundRecovery.enabled ?? false,
+      catchUpOnStart: inboundRecovery.catchUpOnStart ?? false,
+      pollIntervalMs:
+        inboundRecovery.pollIntervalMs ?? DEFAULT_INBOUND_RECOVERY_POLL_INTERVAL_MS,
+      lookbackMinutes:
+        inboundRecovery.lookbackMinutes ?? DEFAULT_INBOUND_RECOVERY_LOOKBACK_MINUTES,
+      safetyLagMs:
+        inboundRecovery.safetyLagMs ?? DEFAULT_INBOUND_RECOVERY_SAFETY_LAG_MS,
     },
     outbound: {
       maxSegmentChars: outbound.maxSegmentChars ?? DEFAULT_MAX_SEGMENT_CHARS,

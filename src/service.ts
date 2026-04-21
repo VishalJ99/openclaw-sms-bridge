@@ -20,6 +20,9 @@ export class SmsInboxBridgeService {
   private readonly transport: AndroidGatewayTransport;
   private readonly outboundMirror: SmsOutboundMirror;
   private readonly inboundHandler: SmsInboundHandler;
+  private inboxRecoveryCursorMs?: number;
+  private inboxRecoveryInFlight = false;
+  private inboxRecoveryTimer?: ReturnType<typeof setInterval>;
   private unsubscribeTranscript?: () => void;
 
   constructor(private readonly params: SmsInboxBridgeServiceParams) {
@@ -60,11 +63,79 @@ export class SmsInboxBridgeService {
     this.params.logger.info(
       `sms-inbox-bridge started for ${this.params.pluginConfig.binding.sessionKey} at ${this.params.pluginConfig.transport.webhookPath}`,
     );
+    this.startInboxRecoveryPolling();
   }
 
   async stop(): Promise<void> {
+    if (this.inboxRecoveryTimer) {
+      clearInterval(this.inboxRecoveryTimer);
+      this.inboxRecoveryTimer = undefined;
+    }
     this.unsubscribeTranscript?.();
     this.unsubscribeTranscript = undefined;
+  }
+
+  private startInboxRecoveryPolling(): void {
+    const recovery = this.params.pluginConfig.inboundRecovery;
+    if (!recovery.enabled || this.inboxRecoveryTimer) {
+      return;
+    }
+    if (this.params.pluginConfig.transport.serverMode !== "local") {
+      this.params.logger.warn(
+        "sms-inbox-bridge inbound recovery polling is only supported in Android Gateway Local Server mode",
+      );
+      return;
+    }
+    if (!this.params.pluginConfig.transport.deviceId) {
+      this.params.logger.warn(
+        "sms-inbox-bridge inbound recovery polling requires transport.deviceId",
+      );
+      return;
+    }
+
+    const now = Date.now();
+    this.inboxRecoveryCursorMs = recovery.catchUpOnStart
+      ? now - recovery.lookbackMinutes * 60 * 1000
+      : now - recovery.safetyLagMs;
+
+    const tick = () => {
+      void this.runInboxRecoveryExport();
+    };
+    tick();
+    this.inboxRecoveryTimer = setInterval(tick, recovery.pollIntervalMs);
+    this.params.logger.info(
+      `sms-inbox-bridge inbound recovery polling enabled every ${recovery.pollIntervalMs}ms`,
+    );
+  }
+
+  private async runInboxRecoveryExport(): Promise<void> {
+    if (this.inboxRecoveryInFlight) {
+      return;
+    }
+
+    const recovery = this.params.pluginConfig.inboundRecovery;
+    const until = Date.now() - recovery.safetyLagMs;
+    const since = this.inboxRecoveryCursorMs ?? until;
+    if (until <= since) {
+      return;
+    }
+
+    this.inboxRecoveryInFlight = true;
+    try {
+      await this.transport.requestInboxExport({ since, until });
+      this.inboxRecoveryCursorMs = until + 1;
+      this.params.logger.debug?.(
+        `sms-inbox-bridge requested inbox export from ${new Date(since).toISOString()} to ${new Date(until).toISOString()}`,
+      );
+    } catch (error) {
+      this.params.logger.warn(
+        `sms-inbox-bridge inbox export recovery failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    } finally {
+      this.inboxRecoveryInFlight = false;
+    }
   }
 
   async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {

@@ -23,6 +23,11 @@ type AndroidGatewaySendResponse = {
   messageId?: unknown;
 };
 
+export type AndroidGatewayInboxExportRequest = {
+  since: number;
+  until: number;
+};
+
 export class SmsBridgeWebhookError extends Error {
   constructor(
     message: string,
@@ -97,6 +102,10 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
     return undefined;
   }
   return await response.json();
+}
+
+function buildBasicAuthHeader(config: AndroidGatewayTransportConfig): string {
+  return `Basic ${Buffer.from(`${config.username}:${config.password}`, "utf8").toString("base64")}`;
 }
 
 function resolveProviderMessageId(value: unknown): string | undefined {
@@ -201,14 +210,10 @@ export class AndroidGatewayTransport implements SmsTransport {
         : {}),
     };
 
-    const auth = Buffer.from(
-      `${this.params.config.username}:${this.params.config.password}`,
-      "utf8",
-    ).toString("base64");
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        authorization: `Basic ${auth}`,
+        authorization: buildBasicAuthHeader(this.params.config),
         "content-type": "application/json",
         accept: "application/json",
       },
@@ -227,5 +232,37 @@ export class AndroidGatewayTransport implements SmsTransport {
       providerMessageId: resolveProviderMessageId(raw) ?? outbound.idempotencyKey,
       raw,
     };
+  }
+
+  async requestInboxExport(request: AndroidGatewayInboxExportRequest): Promise<void> {
+    if (!this.params.config.deviceId) {
+      throw new Error("Android gateway inbox export requires transport.deviceId");
+    }
+    if (request.until <= request.since) {
+      return;
+    }
+
+    const url = new URL(
+      `${this.params.config.apiBaseUrl.replace(/\/$/, "")}/messages/inbox/export`,
+    );
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        authorization: buildBasicAuthHeader(this.params.config),
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        deviceId: this.params.config.deviceId,
+        since: new Date(request.since).toISOString(),
+        until: new Date(request.until).toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Android gateway inbox export failed: ${response.status} ${response.statusText}`,
+      );
+    }
   }
 }

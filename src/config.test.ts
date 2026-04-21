@@ -25,6 +25,13 @@ describe("resolveSmsBridgePluginConfig", () => {
       maxSegmentChars: 300,
       maxSegmentsPerReply: 6,
     });
+    expect(resolved.inboundRecovery).toEqual({
+      enabled: false,
+      catchUpOnStart: false,
+      pollIntervalMs: 30_000,
+      lookbackMinutes: 60,
+      safetyLagMs: 5_000,
+    });
   });
 
   it("allows local server mode without a webhook signing key", () => {
@@ -75,5 +82,34 @@ describe("resolveSmsBridgePluginConfig", () => {
         },
       }),
     ).toThrow("transport.webhookSigningKey");
+  });
+
+  it("supports bounded inbox export recovery settings", () => {
+    const resolved = resolveSmsBridgePluginConfig({
+      binding: {
+        phoneNumber: "+15551234567",
+      },
+      transport: {
+        serverMode: "local",
+        apiBaseUrl: "http://127.0.0.1:18080",
+        username: "sms",
+        password: "pass",
+      },
+      inboundRecovery: {
+        enabled: true,
+        catchUpOnStart: true,
+        pollIntervalMs: 45_000,
+        lookbackMinutes: 120,
+        safetyLagMs: 10_000,
+      },
+    });
+
+    expect(resolved.inboundRecovery).toEqual({
+      enabled: true,
+      catchUpOnStart: true,
+      pollIntervalMs: 45_000,
+      lookbackMinutes: 120,
+      safetyLagMs: 10_000,
+    });
   });
 });

@@ -60,6 +60,13 @@ const pluginConfig: ResolvedSmsBridgePluginConfig = {
     maxSegmentChars: 300,
     maxSegmentsPerReply: 6,
   },
+  inboundRecovery: {
+    enabled: false,
+    catchUpOnStart: false,
+    pollIntervalMs: 30_000,
+    lookbackMinutes: 60,
+    safetyLagMs: 5_000,
+  },
 };
 
 const config: OpenClawConfig = {

@@ -77,6 +77,35 @@
           }
         }
       },
+      "inboundRecovery": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional Local Server inbox export polling for recovering missed inbound SMS.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "catchUpOnStart": {
+            "type": "boolean",
+            "description": "When true, export the configured lookback window on plugin startup. Leave false to avoid replaying old messages after gateway restarts."
+          },
+          "pollIntervalMs": {
+            "type": "integer",
+            "minimum": 5000,
+            "maximum": 3600000
+          },
+          "lookbackMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440
+          },
+          "safetyLagMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60000
+          }
+        }
+      },
       "outbound": {
         "type": "object",
         "additionalProperties": false,

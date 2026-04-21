@@ -1,10 +1,14 @@
 import crypto from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AndroidGatewayTransport } from "./android-gateway.js";
 
 function signWebhook(body: string, timestamp: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(`${body}${timestamp}`).digest("hex");
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("AndroidGatewayTransport.parseWebhook", () => {
   it("accepts a signed sms:received payload", () => {
@@ -142,5 +146,71 @@ describe("AndroidGatewayTransport.parseWebhook", () => {
         to: "+15557654321",
       },
     });
+  });
+});
+
+describe("AndroidGatewayTransport.requestInboxExport", () => {
+  it("requests an inbox export with the configured device id", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(null, { status: 202, statusText: "Accepted" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const transport = new AndroidGatewayTransport({
+      config: {
+        provider: "android-gateway",
+        serverMode: "local",
+        apiBaseUrl: "http://127.0.0.1:18080",
+        username: "sms",
+        password: "pass",
+        webhookPath: "/plugins/sms-inbox-bridge/webhook",
+        deviceId: "device-1",
+        sendPriority: 100,
+        deviceActiveWithinHours: 12,
+        skipPhoneValidation: true,
+      },
+    });
+
+    await transport.requestInboxExport({
+      since: Date.parse("2026-04-21T15:00:00.000Z"),
+      until: Date.parse("2026-04-21T15:01:00.000Z"),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(String(url)).toBe("http://127.0.0.1:18080/messages/inbox/export");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({
+      authorization: `Basic ${Buffer.from("sms:pass", "utf8").toString("base64")}`,
+      "content-type": "application/json",
+      accept: "application/json",
+    });
+    expect(JSON.parse(String(init.body))).toEqual({
+      deviceId: "device-1",
+      since: "2026-04-21T15:00:00.000Z",
+      until: "2026-04-21T15:01:00.000Z",
+    });
+  });
+
+  it("requires a configured device id", async () => {
+    const transport = new AndroidGatewayTransport({
+      config: {
+        provider: "android-gateway",
+        serverMode: "local",
+        apiBaseUrl: "http://127.0.0.1:18080",
+        username: "sms",
+        password: "pass",
+        webhookPath: "/plugins/sms-inbox-bridge/webhook",
+        sendPriority: 100,
+        deviceActiveWithinHours: 12,
+        skipPhoneValidation: true,
+      },
+    });
+
+    await expect(
+      transport.requestInboxExport({
+        since: Date.parse("2026-04-21T15:00:00.000Z"),
+        until: Date.parse("2026-04-21T15:01:00.000Z"),
+      }),
+    ).rejects.toThrow("deviceId");
   });
 });
