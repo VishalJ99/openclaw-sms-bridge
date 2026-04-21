@@ -138,6 +138,58 @@ curl -X POST \
 
 Replace `3000` with the actual local port of your OpenClaw gateway. Keep the USB connection active while you use this setup; the plugin depends on the `adb` tunnels remaining up.
 
+## Cold Start: Local Server Over USB
+
+Use this when the phone was powered off, unplugged, or rebooted. USB disconnects clear `adb` tunnels, so they must be recreated after every reconnect.
+
+1. Turn on the Android phone.
+2. Unlock the phone and keep it awake until `adb` sees it.
+3. Connect it to the Mac with a data-capable USB cable.
+4. If Android shows a USB debugging prompt, allow this Mac.
+5. Open SMS Gateway on the phone if needed and confirm Local Server is `ON` / `ONLINE`.
+6. Confirm OpenClaw gateway is running:
+
+```bash
+openclaw gateway status
+```
+
+7. From this repo, initialize the USB bridge:
+
+```bash
+pnpm local:usb:start
+```
+
+That command:
+
+- verifies an `adb` device is attached
+- runs `adb forward tcp:18080 tcp:8080` so OpenClaw can call the phone Local Server
+- runs `adb reverse tcp:18789 tcp:18789` so the phone can call the local OpenClaw gateway
+- checks `http://127.0.0.1:18080/health`
+- checks the OpenClaw webhook route from both the Mac and the phone
+- registers the `sms:received` webhook if it is missing
+
+The command reads `~/.openclaw/openclaw.json` by default and expects the plugin config under `plugins.entries.sms-inbox-bridge.config`. Override defaults with environment variables:
+
+```bash
+OPENCLAW_CONFIG=/path/to/openclaw.json \
+OPENCLAW_GATEWAY_PORT=18789 \
+SMS_BRIDGE_ANDROID_HOST_PORT=18080 \
+SMS_BRIDGE_ANDROID_DEVICE_PORT=8080 \
+pnpm local:usb:start
+```
+
+If more than one Android device is attached, set `ANDROID_SERIAL` before running the command. Set `SMS_BRIDGE_REGISTER_WEBHOOK=0` to recreate tunnels and run checks without touching phone webhook registration.
+
+When installed as an npm package, the same helper is exposed as `openclaw-sms-bridge-local-usb`.
+
+For the current verified Mac mini setup, the normal recovery sequence after reconnecting the phone is:
+
+```bash
+cd /Users/dross/openclaw-sms-bridge
+pnpm local:usb:start
+openclaw tui --session sms:android-gateway
+```
+
 ## Development
 
 ```bash
