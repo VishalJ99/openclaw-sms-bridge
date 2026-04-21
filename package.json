@@ -4,12 +4,8 @@
   "description": "Single-session SMS inbox bridge plugin for OpenClaw",
   "type": "module",
   "main": "./dist/index.js",
-  "bin": {
-    "openclaw-sms-bridge-local-usb": "./scripts/local-usb-start.mjs"
-  },
   "files": [
     "dist",
-    "scripts",
     "openclaw.plugin.json",
     "README.md"
   ],

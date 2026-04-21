@@ -180,8 +180,6 @@ pnpm local:usb:start
 
 If more than one Android device is attached, set `ANDROID_SERIAL` before running the command. Set `SMS_BRIDGE_REGISTER_WEBHOOK=0` to recreate tunnels and run checks without touching phone webhook registration.
 
-When installed as an npm package, the same helper is exposed as `openclaw-sms-bridge-local-usb`.
-
 For the current verified Mac mini setup, the normal recovery sequence after reconnecting the phone is:
 
 ```bash
