@@ -32,6 +32,15 @@ export default definePluginEntry({
       handler: async (req, res) => await service.handleHttpRequest(req, res),
     });
 
+    if (pluginConfig.tester.enabled) {
+      api.registerHttpRoute({
+        path: pluginConfig.tester.routePath,
+        auth: "plugin",
+        match: "exact",
+        handler: async (req, res) => await service.handleTesterHttpRequest(req, res),
+      });
+    }
+
     if (pluginConfig.alert.enabled) {
       api.registerTool(service.createHumanAlertTool());
     }

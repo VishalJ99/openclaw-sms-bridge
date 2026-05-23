@@ -43,9 +43,12 @@ describe("resolveSmsBridgePluginConfig", () => {
         mode: "disabled",
         endpointUrl: "http://127.0.0.1:18790/call-alert",
         ringSeconds: 8,
-        cooldownSeconds: 300,
-        maxPerDay: 3,
       },
+    });
+    expect(resolved.tester).toEqual({
+      enabled: false,
+      routePath: "/plugins/sms-inbox-bridge/tester/twilio",
+      sessionKey: "agent:main:sms:twilio-tester",
     });
   });
 
@@ -151,8 +154,6 @@ describe("resolveSmsBridgePluginConfig", () => {
           endpointUrl: "http://127.0.0.1:18790/call-alert",
           bearerToken: "secret-token",
           ringSeconds: 10,
-          cooldownSeconds: 120,
-          maxPerDay: 2,
         },
       },
     });
@@ -169,9 +170,66 @@ describe("resolveSmsBridgePluginConfig", () => {
         endpointUrl: "http://127.0.0.1:18790/call-alert",
         bearerToken: "secret-token",
         ringSeconds: 10,
-        cooldownSeconds: 120,
-        maxPerDay: 2,
       },
     });
+  });
+
+  it("supports an enabled Twilio tester lane", () => {
+    const resolved = resolveSmsBridgePluginConfig({
+      binding: {
+        sessionKey: "agent:assistant:sms:android-gateway",
+        phoneNumber: "+15551234567",
+      },
+      transport: {
+        serverMode: "local",
+        apiBaseUrl: "http://127.0.0.1:18080",
+        username: "sms",
+        password: "pass",
+      },
+      tester: {
+        enabled: true,
+        phoneNumber: " +44 7360 543151 ",
+        sharedSecret: "tester-secret",
+        twilio: {
+          accountSid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          authToken: "auth-token",
+          fromNumber: "+44 7360 543151",
+        },
+      },
+    });
+
+    expect(resolved.tester).toEqual({
+      enabled: true,
+      routePath: "/plugins/sms-inbox-bridge/tester/twilio",
+      sessionKey: "agent:assistant:sms:twilio-tester",
+      phoneNumber: "+447360543151",
+      sharedSecret: "tester-secret",
+      twilio: {
+        accountSid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        authToken: "auth-token",
+        fromNumber: "+447360543151",
+      },
+    });
+  });
+
+  it("requires Twilio tester credentials when the tester is enabled", () => {
+    expect(() =>
+      resolveSmsBridgePluginConfig({
+        binding: {
+          phoneNumber: "+15551234567",
+        },
+        transport: {
+          serverMode: "local",
+          apiBaseUrl: "http://127.0.0.1:18080",
+          username: "sms",
+          password: "pass",
+        },
+        tester: {
+          enabled: true,
+          phoneNumber: "+447360543151",
+          sharedSecret: "tester-secret",
+        },
+      }),
+    ).toThrow("tester.twilio.accountSid");
   });
 });

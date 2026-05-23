@@ -16,6 +16,8 @@
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test",
     "call-alert:server": "node scripts/call-alert-server.mjs",
+    "configure:twilio-tester": "node scripts/configure-twilio-tester.mjs",
+    "tester:twilio": "node scripts/twilio-tester.mjs",
     "local:usb:start": "node scripts/local-usb-start.mjs"
   },
   "keywords": [

@@ -39,14 +39,17 @@ function createPluginConfig(
         mode: "dry-run",
         endpointUrl: "http://127.0.0.1:18790/call-alert",
         ringSeconds: 8,
-        cooldownSeconds: 300,
-        maxPerDay: 3,
       },
       ...alert,
     },
     outbound: {
       maxSegmentChars: 300,
       maxSegmentsPerReply: 6,
+    },
+    tester: {
+      enabled: false,
+      routePath: "/plugins/sms-inbox-bridge/tester/twilio",
+      sessionKey: "agent:main:sms:twilio-tester",
     },
   };
 }
@@ -94,8 +97,6 @@ describe("createHumanAlertTool", () => {
           endpointUrl: "http://127.0.0.1:18790/call-alert",
           bearerToken: "secret-token",
           ringSeconds: 8,
-          cooldownSeconds: 300,
-          maxPerDay: 3,
         },
       }),
       transport: { sendText: vi.fn() },
@@ -125,34 +126,6 @@ describe("createHumanAlertTool", () => {
     });
   });
 
-  it("blocks repeated call alerts inside the cooldown window", async () => {
-    let currentTime = Date.parse("2026-04-21T17:00:00.000Z");
-    const tool = createHumanAlertTool({
-      logger: { info: vi.fn() } as never,
-      now: () => currentTime,
-      pluginConfig: createPluginConfig(),
-      transport: { sendText: vi.fn() },
-    });
-
-    await tool.execute("tool-call-1", {
-      action: "call_alert",
-      reason: "urgent blocker",
-    });
-    currentTime += 60_000;
-    const result = await tool.execute("tool-call-2", {
-      action: "call_alert",
-      reason: "still blocked",
-    });
-
-    expect(result.details).toEqual({
-      action: "call_alert",
-      status: "blocked",
-      reason: "still blocked",
-      blockedBy: "cooldown",
-      retryAfterSeconds: 240,
-    });
-  });
-
   it("surfaces dry-run responses from the local helper", async () => {
     const fetchImpl = vi.fn(
       async () =>
@@ -170,8 +143,6 @@ describe("createHumanAlertTool", () => {
           mode: "local-http",
           endpointUrl: "http://127.0.0.1:18790/call-alert",
           ringSeconds: 8,
-          cooldownSeconds: 300,
-          maxPerDay: 3,
         },
       }),
       transport: { sendText: vi.fn() },

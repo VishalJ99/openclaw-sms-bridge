@@ -1,9 +1,13 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   SmsOutboundMirror,
   chunkSmsText,
   extractAssistantText,
   matchesBoundSessionUpdate,
+  readLatestAssistantMessageFromSessionFile,
 } from "./outbound.js";
 
 function createPluginConfig() {
@@ -98,6 +102,92 @@ describe("SmsOutboundMirror", () => {
         to: "+447981839872",
       });
     });
+  });
+
+  it("mirrors file-only transcript updates from the latest assistant message", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sms-outbound-"));
+    const sessionFile = path.join(dir, "session.jsonl");
+    fs.writeFileSync(
+      sessionFile,
+      [
+        JSON.stringify({
+          type: "message",
+          id: "user-1",
+          message: { role: "user", content: "ping" },
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "assistant-1",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "pong" }],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    const sendText = vi.fn(async () => ({ accepted: true }));
+    const mirror = new SmsOutboundMirror({
+      logger: {
+        error: vi.fn(),
+      } as never,
+      pluginConfig: createPluginConfig() as never,
+      resolveBoundSession: () => ({
+        sessionKey: "agent:main:sms:android-gateway",
+        sessionFile,
+      }),
+      transport: {
+        sendText,
+      },
+    });
+
+    mirror.handleTranscriptUpdate({
+      sessionFile,
+      sessionKey: "agent:main:sms:android-gateway",
+    });
+
+    await vi.waitFor(() => {
+      expect(sendText).toHaveBeenCalledWith({
+        idempotencyKey: "assistant-1",
+        text: "pong",
+        to: "+447981839872",
+      });
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("readLatestAssistantMessageFromSessionFile", () => {
+  it("returns the newest assistant message from a JSONL transcript", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sms-transcript-"));
+    const sessionFile = path.join(dir, "session.jsonl");
+    fs.writeFileSync(
+      sessionFile,
+      [
+        JSON.stringify({
+          type: "message",
+          id: "assistant-old",
+          message: { role: "assistant", content: [{ type: "text", text: "old" }] },
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "user-new",
+          message: { role: "user", content: "ignore me" },
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "assistant-new",
+          message: { role: "assistant", content: [{ type: "text", text: "new" }] },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const latest = readLatestAssistantMessageFromSessionFile(sessionFile);
+
+    expect(latest?.messageId).toBe("assistant-new");
+    expect(extractAssistantText(latest?.message)).toBe("new");
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 

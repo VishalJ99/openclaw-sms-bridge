@@ -40,13 +40,23 @@ export type SmsBridgePluginConfig = {
       endpointUrl?: string;
       bearerToken?: string;
       ringSeconds?: number;
-      cooldownSeconds?: number;
-      maxPerDay?: number;
     };
   };
   outbound?: {
     maxSegmentChars?: number;
     maxSegmentsPerReply?: number;
+  };
+  tester?: {
+    enabled?: boolean;
+    routePath?: string;
+    sessionKey?: string;
+    phoneNumber?: string;
+    sharedSecret?: string;
+    twilio?: {
+      accountSid?: string;
+      authToken?: string;
+      fromNumber?: string;
+    };
   };
 };
 
@@ -89,14 +99,37 @@ export type ResolvedSmsBridgePluginConfig = {
       endpointUrl: string;
       bearerToken?: string;
       ringSeconds: number;
-      cooldownSeconds: number;
-      maxPerDay: number;
     };
   };
   outbound: {
     maxSegmentChars: number;
     maxSegmentsPerReply: number;
   };
+  tester:
+    | {
+        enabled: false;
+        routePath: string;
+        sessionKey: string;
+        phoneNumber?: string;
+        sharedSecret?: string;
+        twilio?: {
+          accountSid?: string;
+          authToken?: string;
+          fromNumber?: string;
+        };
+      }
+    | {
+        enabled: true;
+        routePath: string;
+        sessionKey: string;
+        phoneNumber: string;
+        sharedSecret: string;
+        twilio: {
+          accountSid: string;
+          authToken: string;
+          fromNumber: string;
+        };
+      };
 };
 
 const DEFAULT_SESSION_KEY = "agent:main:main";
@@ -113,8 +146,8 @@ const DEFAULT_INBOUND_RECOVERY_SAFETY_LAG_MS = 5_000;
 const DEFAULT_ALERT_SMS_MAX_CHARS = 300;
 const DEFAULT_CALL_ALERT_ENDPOINT_URL = "http://127.0.0.1:18790/call-alert";
 const DEFAULT_CALL_ALERT_RING_SECONDS = 8;
-const DEFAULT_CALL_ALERT_COOLDOWN_SECONDS = 300;
-const DEFAULT_CALL_ALERT_MAX_PER_DAY = 3;
+const DEFAULT_TESTER_ROUTE_PATH = "/plugins/sms-inbox-bridge/tester/twilio";
+const DEFAULT_TESTER_SESSION_SUFFIX = "sms:twilio-tester";
 
 const nonEmptyTrimmedString = (message: string) =>
   z.string({ error: message }).trim().min(1, { error: message });
@@ -221,18 +254,6 @@ const SmsBridgePluginConfigSchemaSource = z.strictObject({
             .min(1, { error: "alert.call.ringSeconds must be a number between 1 and 60" })
             .max(60, { error: "alert.call.ringSeconds must be a number between 1 and 60" })
             .optional(),
-          cooldownSeconds: z
-            .number({ error: "alert.call.cooldownSeconds must be a number between 0 and 86400" })
-            .int({ error: "alert.call.cooldownSeconds must be a number between 0 and 86400" })
-            .min(0, { error: "alert.call.cooldownSeconds must be a number between 0 and 86400" })
-            .max(86_400, { error: "alert.call.cooldownSeconds must be a number between 0 and 86400" })
-            .optional(),
-          maxPerDay: z
-            .number({ error: "alert.call.maxPerDay must be a number between 0 and 50" })
-            .int({ error: "alert.call.maxPerDay must be a number between 0 and 50" })
-            .min(0, { error: "alert.call.maxPerDay must be a number between 0 and 50" })
-            .max(50, { error: "alert.call.maxPerDay must be a number between 0 and 50" })
-            .optional(),
         })
         .optional(),
     })
@@ -250,6 +271,28 @@ const SmsBridgePluginConfigSchemaSource = z.strictObject({
         .int({ error: "outbound.maxSegmentsPerReply must be a number between 1 and 20" })
         .min(1, { error: "outbound.maxSegmentsPerReply must be a number between 1 and 20" })
         .max(20, { error: "outbound.maxSegmentsPerReply must be a number between 1 and 20" })
+        .optional(),
+    })
+    .optional(),
+  tester: z
+    .strictObject({
+      enabled: z.boolean({ error: "tester.enabled must be a boolean" }).optional(),
+      routePath: nonEmptyTrimmedString("tester.routePath must be a non-empty string").optional(),
+      sessionKey: nonEmptyTrimmedString("tester.sessionKey must be a non-empty string").optional(),
+      phoneNumber: nonEmptyTrimmedString("tester.phoneNumber must be a non-empty string").optional(),
+      sharedSecret: nonEmptyTrimmedString("tester.sharedSecret must be a non-empty string").optional(),
+      twilio: z
+        .strictObject({
+          accountSid: nonEmptyTrimmedString(
+            "tester.twilio.accountSid must be a non-empty string",
+          ).optional(),
+          authToken: nonEmptyTrimmedString(
+            "tester.twilio.authToken must be a non-empty string",
+          ).optional(),
+          fromNumber: nonEmptyTrimmedString(
+            "tester.twilio.fromNumber must be a non-empty string",
+          ).optional(),
+        })
         .optional(),
     })
     .optional(),
@@ -271,6 +314,19 @@ function formatConfigIssue(issue: z.ZodIssue | undefined): string {
 function normalizeWebhookPath(value: string | undefined): string {
   const candidate = value?.trim() || DEFAULT_WEBHOOK_PATH;
   return candidate.startsWith("/") ? candidate : `/${candidate}`;
+}
+
+function normalizeRoutePath(value: string | undefined, fallback: string): string {
+  const candidate = value?.trim() || fallback;
+  return candidate.startsWith("/") ? candidate : `/${candidate}`;
+}
+
+function deriveTesterSessionKey(sessionKey: string): string {
+  const match = /^agent:([^:]+):/i.exec(sessionKey.trim());
+  if (!match?.[1]) {
+    return `agent:main:${DEFAULT_TESTER_SESSION_SUFFIX}`;
+  }
+  return `agent:${match[1]}:${DEFAULT_TESTER_SESSION_SUFFIX}`;
 }
 
 export function normalizePhoneNumber(value: string): string {
@@ -339,6 +395,8 @@ export function resolveSmsBridgePluginConfig(
   const alertSms = alert.sms ?? {};
   const alertCall = alert.call ?? {};
   const outbound = cfg.outbound ?? {};
+  const tester = cfg.tester ?? {};
+  const testerTwilio = tester.twilio ?? {};
 
   const provider = transport.provider ?? "android-gateway";
   if (provider !== "android-gateway") {
@@ -346,9 +404,54 @@ export function resolveSmsBridgePluginConfig(
   }
   const serverMode = transport.serverMode ?? DEFAULT_SERVER_MODE;
 
+  const bindingSessionKey = binding.sessionKey ?? DEFAULT_SESSION_KEY;
+  const resolvedTesterRoutePath = normalizeRoutePath(
+    tester.routePath,
+    DEFAULT_TESTER_ROUTE_PATH,
+  );
+  const resolvedTesterSessionKey =
+    tester.sessionKey ?? deriveTesterSessionKey(bindingSessionKey);
+  const resolvedTester = tester.enabled
+    ? {
+        enabled: true as const,
+        routePath: resolvedTesterRoutePath,
+        sessionKey: resolvedTesterSessionKey,
+        phoneNumber: normalizePhoneNumber(
+          requireField(tester.phoneNumber, "tester.phoneNumber"),
+        ),
+        sharedSecret: requireField(tester.sharedSecret, "tester.sharedSecret"),
+        twilio: {
+          accountSid: requireField(testerTwilio.accountSid, "tester.twilio.accountSid"),
+          authToken: requireField(testerTwilio.authToken, "tester.twilio.authToken"),
+          fromNumber: normalizePhoneNumber(
+            requireField(testerTwilio.fromNumber, "tester.twilio.fromNumber"),
+          ),
+        },
+      }
+    : {
+        enabled: false as const,
+        routePath: resolvedTesterRoutePath,
+        sessionKey: resolvedTesterSessionKey,
+        ...(tester.phoneNumber
+          ? { phoneNumber: normalizePhoneNumber(tester.phoneNumber) }
+          : {}),
+        ...(tester.sharedSecret ? { sharedSecret: tester.sharedSecret } : {}),
+        ...(tester.twilio
+          ? {
+              twilio: {
+                ...(testerTwilio.accountSid ? { accountSid: testerTwilio.accountSid } : {}),
+                ...(testerTwilio.authToken ? { authToken: testerTwilio.authToken } : {}),
+                ...(testerTwilio.fromNumber
+                  ? { fromNumber: normalizePhoneNumber(testerTwilio.fromNumber) }
+                  : {}),
+              },
+            }
+          : {}),
+      };
+
   return {
     binding: {
-      sessionKey: binding.sessionKey ?? DEFAULT_SESSION_KEY,
+      sessionKey: bindingSessionKey,
       phoneNumber: normalizePhoneNumber(
         requireField(binding.phoneNumber, "binding.phoneNumber"),
       ),
@@ -400,14 +503,12 @@ export function resolveSmsBridgePluginConfig(
         endpointUrl: alertCall.endpointUrl ?? DEFAULT_CALL_ALERT_ENDPOINT_URL,
         ...(alertCall.bearerToken ? { bearerToken: alertCall.bearerToken } : {}),
         ringSeconds: alertCall.ringSeconds ?? DEFAULT_CALL_ALERT_RING_SECONDS,
-        cooldownSeconds:
-          alertCall.cooldownSeconds ?? DEFAULT_CALL_ALERT_COOLDOWN_SECONDS,
-        maxPerDay: alertCall.maxPerDay ?? DEFAULT_CALL_ALERT_MAX_PER_DAY,
       },
     },
     outbound: {
       maxSegmentChars: outbound.maxSegmentChars ?? DEFAULT_MAX_SEGMENT_CHARS,
       maxSegmentsPerReply: outbound.maxSegmentsPerReply ?? DEFAULT_MAX_SEGMENTS_PER_REPLY,
     },
+    tester: resolvedTester,
   };
 }

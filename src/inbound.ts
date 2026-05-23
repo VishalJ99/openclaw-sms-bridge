@@ -19,16 +19,42 @@ type SmsInboundHandlerParams = {
   runtime: PluginRuntime;
 };
 
+const RECENT_DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
+
+function normalizePhoneForDuplicateKey(value: string): string {
+  return value.replace(/[^\d+]/g, "");
+}
+
+function normalizeTextForDuplicateKey(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function buildInboundDuplicateKey(event: InboundSmsEvent): string {
+  return [
+    normalizePhoneForDuplicateKey(event.from),
+    normalizeTextForDuplicateKey(event.text),
+  ].join("\n");
+}
+
 export class SmsInboundHandler {
   private readonly completedEventIds: string[] = [];
   private readonly completedEventIdSet = new Set<string>();
+  private readonly completedDuplicateKeys: Array<{ key: string; receivedAt: number }> = [];
+  private readonly completedDuplicateKeySeenAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<void>>();
+  private readonly inFlightDuplicateKeys = new Set<string>();
   private tail: Promise<void> = Promise.resolve();
 
   constructor(private readonly params: SmsInboundHandlerParams) {}
 
   enqueue(event: InboundSmsEvent): void {
-    if (this.completedEventIdSet.has(event.externalId) || this.inFlight.has(event.externalId)) {
+    const duplicateKey = buildInboundDuplicateKey(event);
+    if (
+      this.completedEventIdSet.has(event.externalId) ||
+      this.inFlight.has(event.externalId) ||
+      this.inFlightDuplicateKeys.has(duplicateKey) ||
+      this.wasRecentlyCompletedDuplicate(duplicateKey, event.receivedAt)
+    ) {
       return;
     }
 
@@ -36,7 +62,7 @@ export class SmsInboundHandler {
       .catch(() => undefined)
       .then(async () => {
         await this.processInbound(event);
-        this.markCompleted(event.externalId);
+        this.markCompleted(event.externalId, duplicateKey, event.receivedAt);
       })
       .catch(async (error) => {
         this.params.logger.error(
@@ -49,19 +75,38 @@ export class SmsInboundHandler {
       })
       .finally(() => {
         this.inFlight.delete(event.externalId);
+        this.inFlightDuplicateKeys.delete(duplicateKey);
       });
 
     this.tail = run.catch(() => undefined);
     this.inFlight.set(event.externalId, run);
+    this.inFlightDuplicateKeys.add(duplicateKey);
   }
 
-  private markCompleted(externalId: string): void {
+  private wasRecentlyCompletedDuplicate(duplicateKey: string, receivedAt: number): boolean {
+    const previousReceivedAt = this.completedDuplicateKeySeenAt.get(duplicateKey);
+    return (
+      typeof previousReceivedAt === "number" &&
+      Math.abs(receivedAt - previousReceivedAt) <= RECENT_DUPLICATE_WINDOW_MS
+    );
+  }
+
+  private markCompleted(externalId: string, duplicateKey: string, receivedAt: number): void {
     this.completedEventIdSet.add(externalId);
     this.completedEventIds.push(externalId);
     while (this.completedEventIds.length > 200) {
       const removed = this.completedEventIds.shift();
       if (removed) {
         this.completedEventIdSet.delete(removed);
+      }
+    }
+
+    this.completedDuplicateKeySeenAt.set(duplicateKey, receivedAt);
+    this.completedDuplicateKeys.push({ key: duplicateKey, receivedAt });
+    while (this.completedDuplicateKeys.length > 200) {
+      const removed = this.completedDuplicateKeys.shift();
+      if (removed && this.completedDuplicateKeySeenAt.get(removed.key) === removed.receivedAt) {
+        this.completedDuplicateKeySeenAt.delete(removed.key);
       }
     }
   }
@@ -144,6 +189,12 @@ export class SmsInboundHandler {
             model: boundSession.modelId,
           }
         : {}),
+      ...(boundSession.authProfileId
+        ? {
+            authProfileId: boundSession.authProfileId,
+            authProfileIdSource: boundSession.authProfileIdSource,
+          }
+        : {}),
       timeoutMs: this.params.runtime.agent.resolveAgentTimeoutMs({
         cfg: this.params.config,
       }),
@@ -158,5 +209,8 @@ export class SmsInboundHandler {
       runtime: this.params.runtime,
       state: boundSession,
     });
+    this.params.logger.info(
+      `sms-inbox-bridge bound session inbound processed (${event.externalId}) session=${boundSession.sessionKey}`,
+    );
   }
 }

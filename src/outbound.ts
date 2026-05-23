@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import type { ResolvedSmsBridgePluginConfig } from "./config.js";
 import type { SmsTransport } from "./transport/types.js";
@@ -18,6 +19,13 @@ type BoundSessionReference = {
   sessionFile?: string;
   sessionKey?: string;
 };
+
+type AssistantTranscriptMessage = {
+  message: unknown;
+  messageId?: string;
+};
+
+const SESSION_FILE_TAIL_BYTES = 1024 * 1024;
 
 export function matchesBoundSessionUpdate(
   update: SessionTranscriptUpdateLike,
@@ -67,6 +75,73 @@ export function extractAssistantText(message: unknown): string | null {
     })
     .filter((part) => part.length > 0);
   return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readSessionFileTail(sessionFile: string): string | null {
+  const trimmed = sessionFile.trim();
+  if (!trimmed) {
+    return null;
+  }
+  let fd: number | undefined;
+  try {
+    const stat = fs.statSync(trimmed);
+    if (!stat.isFile() || stat.size <= 0) {
+      return null;
+    }
+    const bytesToRead = Math.min(stat.size, SESSION_FILE_TAIL_BYTES);
+    const start = Math.max(0, stat.size - bytesToRead);
+    const buffer = Buffer.alloc(bytesToRead);
+    fd = fs.openSync(trimmed, "r");
+    fs.readSync(fd, buffer, 0, bytesToRead, start);
+    return buffer.toString("utf8");
+  } catch {
+    return null;
+  } finally {
+    if (typeof fd === "number") {
+      fs.closeSync(fd);
+    }
+  }
+}
+
+export function readLatestAssistantMessageFromSessionFile(
+  sessionFile: string,
+): AssistantTranscriptMessage | null {
+  const tail = readSessionFileTail(sessionFile);
+  if (!tail) {
+    return null;
+  }
+  const lines = tail.split(/\r?\n/).filter((line) => line.trim().length > 0).reverse();
+  for (const line of lines) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object") {
+      continue;
+    }
+    const entry = parsed as {
+      id?: unknown;
+      message?: unknown;
+      type?: unknown;
+    };
+    const message = entry.type === "message" ? entry.message : parsed;
+    if (!extractAssistantText(message)) {
+      continue;
+    }
+    return {
+      message,
+      ...(normalizeOptionalString(entry.id)
+        ? { messageId: normalizeOptionalString(entry.id) }
+        : {}),
+    };
+  }
+  return null;
 }
 
 function splitText(text: string, maxChars: number): string[] {
@@ -163,7 +238,17 @@ export class SmsOutboundMirror {
       return;
     }
 
-    const text = extractAssistantText(update.message);
+    const resolved =
+      update.message !== undefined
+        ? { message: update.message, messageId: update.messageId }
+        : update.sessionFile
+          ? readLatestAssistantMessageFromSessionFile(update.sessionFile)
+          : null;
+    if (resolved?.messageId && this.sentMessageIds.has(resolved.messageId)) {
+      return;
+    }
+
+    const text = extractAssistantText(resolved?.message);
     if (!text) {
       return;
     }
@@ -180,17 +265,17 @@ export class SmsOutboundMirror {
           await this.params.transport.sendText({
             text: chunk,
             to: this.params.pluginConfig.binding.phoneNumber,
-            idempotencyKey: update.messageId,
+            idempotencyKey: resolved?.messageId,
           });
         }
-        if (update.messageId) {
-          this.recordSentMessage(update.messageId);
+        if (resolved?.messageId) {
+          this.recordSentMessage(resolved.messageId);
         }
       })
       .catch((error) => {
         this.params.logger.error(
           `sms-inbox-bridge failed to mirror assistant message ${
-            update.messageId ?? "<unknown>"
+            resolved?.messageId ?? update.messageId ?? "<unknown>"
           }: ${error instanceof Error ? error.message : String(error)}`,
         );
       });

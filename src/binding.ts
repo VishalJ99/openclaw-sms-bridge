@@ -13,11 +13,15 @@ export type BoundSessionState = {
   storePath: string;
   modelProvider?: string;
   modelId?: string;
+  authProfileId?: string;
+  authProfileIdSource?: "auto" | "user";
 };
 
 type SessionStoreEntryLike = {
   provider?: unknown;
   model?: unknown;
+  authProfileOverride?: unknown;
+  authProfileOverrideSource?: unknown;
 };
 
 type ModelSelection = {
@@ -45,6 +49,10 @@ function readNonEmptyString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function readAuthProfileOverrideSource(value: unknown): "auto" | "user" | undefined {
+  return value === "auto" || value === "user" ? value : undefined;
 }
 
 function parseModelRef(ref: string | undefined): ModelSelection {
@@ -127,6 +135,8 @@ export function resolveBoundSessionState(params: {
     storePath,
     modelProvider: modelSelection.provider,
     modelId: modelSelection.model,
+    authProfileId: readNonEmptyString(existing?.authProfileOverride),
+    authProfileIdSource: readAuthProfileOverrideSource(existing?.authProfileOverrideSource),
   };
 }
 

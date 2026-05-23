@@ -25,8 +25,7 @@ type HumanAlertDetails =
       action: "call_alert";
       status: "requested" | "dry-run" | "blocked";
       reason: string;
-      blockedBy?: "disabled" | "cooldown" | "daily-limit";
-      retryAfterSeconds?: number;
+      blockedBy?: "disabled";
     };
 
 type CreateHumanAlertToolParams = {
@@ -63,11 +62,6 @@ function readHumanAlertParams(params: unknown): ParsedHumanAlertParams {
   };
 }
 
-function pruneOldCallAttempts(attempts: number[], now: number): number[] {
-  const windowStart = now - 24 * 60 * 60 * 1000;
-  return attempts.filter((timestamp) => timestamp >= windowStart);
-}
-
 async function parseHelperResponse(response: Response): Promise<Record<string, unknown>> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
@@ -82,8 +76,6 @@ async function parseHelperResponse(response: Response): Promise<Record<string, u
 export function createHumanAlertTool(params: CreateHumanAlertToolParams): AnyAgentTool {
   const now = params.now ?? (() => Date.now());
   const fetchImpl = params.fetchImpl ?? fetch;
-  let lastCallAlertAt = 0;
-  let callAlertAttempts: number[] = [];
 
   return {
     name: "human_alert",
@@ -157,29 +149,7 @@ export function createHumanAlertTool(params: CreateHumanAlertToolParams): AnyAge
       }
 
       const currentTime = now();
-      callAlertAttempts = pruneOldCallAttempts(callAlertAttempts, currentTime);
-      if (call.maxPerDay === 0 || callAlertAttempts.length >= call.maxPerDay) {
-        return toolResult({
-          action: "call_alert",
-          status: "blocked",
-          reason: input.reason,
-          blockedBy: "daily-limit",
-        });
-      }
-      const elapsedSeconds = Math.floor((currentTime - lastCallAlertAt) / 1000);
-      if (lastCallAlertAt > 0 && elapsedSeconds < call.cooldownSeconds) {
-        return toolResult({
-          action: "call_alert",
-          status: "blocked",
-          reason: input.reason,
-          blockedBy: "cooldown",
-          retryAfterSeconds: call.cooldownSeconds - elapsedSeconds,
-        });
-      }
-
       if (call.mode === "dry-run") {
-        lastCallAlertAt = currentTime;
-        callAlertAttempts.push(currentTime);
         params.logger.info?.(
           `sms-inbox-bridge human_alert call dry-run reason=${JSON.stringify(input.reason)}`,
         );
@@ -203,27 +173,10 @@ export function createHumanAlertTool(params: CreateHumanAlertToolParams): AnyAge
         }),
       });
       const helperPayload = await parseHelperResponse(response);
-      if (
-        response.status === 429 &&
-        helperPayload.status === "blocked" &&
-        (helperPayload.blockedBy === "cooldown" || helperPayload.blockedBy === "daily-limit")
-      ) {
-        return toolResult({
-          action: "call_alert",
-          status: "blocked",
-          reason: input.reason,
-          blockedBy: helperPayload.blockedBy,
-          ...(typeof helperPayload.retryAfterSeconds === "number"
-            ? { retryAfterSeconds: helperPayload.retryAfterSeconds }
-            : {}),
-        });
-      }
       if (!response.ok) {
         throw new Error(`call alert helper failed: ${response.status} ${response.statusText}`);
       }
 
-      lastCallAlertAt = currentTime;
-      callAlertAttempts.push(currentTime);
       params.logger.warn?.(
         `sms-inbox-bridge human_alert call requested reason=${JSON.stringify(input.reason)}`,
       );

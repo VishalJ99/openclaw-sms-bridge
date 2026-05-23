@@ -2,6 +2,12 @@
   "id": "sms-inbox-bridge",
   "name": "SMS Inbox Bridge",
   "description": "Bind one phone number to one OpenClaw session and mirror that session over SMS.",
+  "contracts": {
+    "tools": ["human_alert"]
+  },
+  "activation": {
+    "onStartup": true
+  },
   "skills": ["./skills"],
   "configSchema": {
     "type": "object",
@@ -151,16 +157,6 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 60
-              },
-              "cooldownSeconds": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 86400
-              },
-              "maxPerDay": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 50
               }
             }
           }
@@ -179,6 +175,47 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 20
+          }
+        }
+      },
+      "tester": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional local Twilio tester lane for exercising the Android webhook path without manual SMS input.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "routePath": {
+            "type": "string",
+            "description": "Local route that asks Twilio to send a test SMS into the Android phone."
+          },
+          "sessionKey": {
+            "type": "string",
+            "description": "Separate bound session key for Twilio-originated test messages."
+          },
+          "phoneNumber": {
+            "type": "string",
+            "description": "Twilio phone number accepted as the tester sender and used as the reply target."
+          },
+          "sharedSecret": {
+            "type": "string",
+            "description": "Secret required in x-sms-bridge-tester-secret when calling the tester route."
+          },
+          "twilio": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "accountSid": {
+                "type": "string"
+              },
+              "authToken": {
+                "type": "string"
+              },
+              "fromNumber": {
+                "type": "string"
+              }
+            }
           }
         }
       }

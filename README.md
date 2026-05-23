@@ -32,7 +32,7 @@ Not included in V1:
 - arbitrary outbound texting
 - MMS/RCS/group SMS
 - multiple phone numbers
-- Twilio transport
+- production Twilio transport; Twilio is only used as an optional local tester sender
 
 ## Config Example
 
@@ -111,9 +111,7 @@ This is the verified setup for the attached Android 6 phone. The Local Server AP
       "mode": "local-http",
       "endpointUrl": "http://127.0.0.1:18790/call-alert",
       "bearerToken": "replace-with-random-local-token",
-      "ringSeconds": 8,
-      "cooldownSeconds": 300,
-      "maxPerDay": 3
+      "ringSeconds": 8
     }
   },
   "outbound": {
@@ -128,6 +126,8 @@ This is the verified setup for the attached Android 6 phone. The Local Server AP
 `inboundRecovery` is optional and should stay disabled for normal live operation. In Local Server mode it periodically requests `/messages/inbox/export` from the phone, which causes SMS Gateway to emit normal `sms:received` webhooks for messages stored in Android's SMS inbox. Enable it only as a controlled recovery path on older Android devices where the app can remain online but fail to register its live SMS receiver after reboot or background start.
 
 Leave `catchUpOnStart` as `false` for normal use. Turning it on replays the initial `lookbackMinutes` window at gateway startup, which is useful for manual recovery but can duplicate old replies after a restart.
+
+For the current attached Android 6 handset, live inbound SMS receiver registration is unreliable. The verified live workaround is `inboundRecovery.enabled: true` with `catchUpOnStart: false`, a bounded poll interval, and physical validation through `pnpm tester:twilio --physical --wait`.
 
 `alert.enabled` registers the `human_alert` tool. The tool never accepts arbitrary recipient numbers; SMS and call-alert escalation always target `binding.phoneNumber`. `alert.call.mode: "local-http"` posts to the repo-local call-alert helper, which owns the ADB call command and reads the trusted number from `~/.openclaw/openclaw.json`.
 
@@ -151,6 +151,49 @@ If your OpenClaw config uses a restrictive tool profile such as `"coding"`, also
   }
 }
 ```
+
+### Optional Twilio Tester Lane
+
+The tester lane lets an agent run an SMS smoke test without asking the human to manually send a text. It is disabled by default and should use a separate session from the real dumbphone binding.
+
+Flow:
+
+1. `POST tester.routePath` with `x-sms-bridge-tester-secret`.
+2. The plugin parses the body as either JSON (`text`) or Twilio form fields (`Body`, `From`, `MessageSid`).
+3. The bridge routes that synthetic Twilio sender into `tester.sessionKey`.
+4. Assistant replies from that tester session are mirrored back to `tester.phoneNumber` through Android Gateway.
+
+Keep Twilio credentials in local, uncommitted `.env`, then configure the non-repo OpenClaw config:
+
+```bash
+TWILIO_ACCOUNT_SID=replace-me
+TWILIO_AUTH_TOKEN=replace-me
+TWILIO_PHONE_NUMBER=+15557654321
+SMS_BRIDGE_TESTER_SECRET=replace-with-random-local-secret
+SMS_BRIDGE_GATEWAY_PHONE_NUMBER=+15559876543
+
+pnpm configure:twilio-tester
+```
+
+After the plugin is installed and the gateway has loaded the updated config, run:
+
+```bash
+pnpm tester:twilio --wait "Reply with exactly TESTER_OK"
+```
+
+To test the real carrier inbound path without asking the human to send a text, send from Twilio into the Android gateway SIM:
+
+```bash
+pnpm tester:twilio --physical --wait "Reply with exactly PHYSICAL_OK"
+```
+
+If the Android app is online but its live SMS receiver is not registered, use the controlled inbox-export recovery path instead:
+
+```bash
+pnpm tester:twilio --physical --trigger-export --wait "Reply with exactly PHYSICAL_OK"
+```
+
+The tester route intentionally does not change the production `binding.phoneNumber` or `binding.sessionKey`.
 
 ## Setup Order
 
@@ -246,7 +289,7 @@ The plugin can expose a model-callable `human_alert` tool when `alert.enabled` i
 - `action: "sms"` sends the supplied `message` through SMS Gateway to the configured bound phone number.
 - `action: "call_alert"` requests a no-body ring/call through the local helper. It is intended only as an escalation signal.
 - `reason` is required for both actions and is logged for auditability.
-- `call_alert` is bounded by `alert.call.cooldownSeconds` and `alert.call.maxPerDay`.
+- `call_alert` is not rate-limited by this plugin; keep it enabled only for the bound/trusted human and rely on agent policy plus explicit recipient binding.
 
 Start the local call-alert helper from this repo before using `alert.call.mode: "local-http"`:
 
@@ -260,7 +303,7 @@ For a non-calling smoke test, run the helper in dry-run mode:
 SMS_BRIDGE_CALL_ALERT_DRY_RUN=1 pnpm call-alert:server
 ```
 
-The packaged plugin includes the `reach-dross` skill, which teaches agents when to use SMS versus call-alert escalation. The helper script is intentionally repo-local rather than included in the OpenClaw plugin package, because it owns the ADB shell command.
+The packaged plugin includes the `notify-human` skill, which teaches agents when to use SMS versus call-alert escalation. The helper script is intentionally repo-local rather than included in the OpenClaw plugin package, because it owns the ADB shell command.
 
 ## Development
 
@@ -273,7 +316,6 @@ pnpm test
 ## Notes
 
 - Accepted architecture is recorded in [decisions/human/2026-04-16-session-bound-sms-inbox-bridge.md](./decisions/human/2026-04-16-session-bound-sms-inbox-bridge.md).
-- Unknown sender handling and exact long-message behavior remain pending review in [decisions/agent/pending/](./decisions/agent/pending/).
 - The bridge mirrors assistant transcript messages from the bound parent session. It does not mirror child-session transcripts directly.
 - Valid SMS text commands such as `/status` and `/new` now go through the same gateway command path as the TUI. Unknown `/...` inputs still fall back to normal prompt handling.
 - The Android phone stores normal SMS inbox/sent records and small SMS Gateway logs/queue records. OpenClaw session state and agent transcripts live on the Mac.

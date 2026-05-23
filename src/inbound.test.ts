@@ -11,8 +11,8 @@ vi.mock("./slash-commands.js", () => ({
   routeGatewayTextSlashCommandIfSupported: mocks.routeGatewayTextSlashCommandIfSupportedMock,
 }));
 
-function buildRuntime() {
-  const sessionStore: Record<string, Record<string, unknown>> = {};
+function buildRuntime(initialSessionStore: Record<string, Record<string, unknown>> = {}) {
+  const sessionStore: Record<string, Record<string, unknown>> = { ...initialSessionStore };
   const runtime = {
     agent: {
       ensureAgentWorkspace: vi.fn(async () => undefined),
@@ -78,9 +78,12 @@ const pluginConfig: ResolvedSmsBridgePluginConfig = {
       mode: "disabled",
       endpointUrl: "http://127.0.0.1:18790/call-alert",
       ringSeconds: 8,
-      cooldownSeconds: 300,
-      maxPerDay: 3,
     },
+  },
+  tester: {
+    enabled: false,
+    routePath: "/plugins/sms-inbox-bridge/tester/twilio",
+    sessionKey: "agent:main:sms:twilio-tester",
   },
 };
 
@@ -172,5 +175,78 @@ describe("SmsInboundHandler", () => {
         }),
       );
     });
+  });
+
+  it("passes the bound session auth profile override into embedded-agent delivery", async () => {
+    mocks.routeGatewayTextSlashCommandIfSupportedMock.mockResolvedValue(false);
+    const { runtime } = buildRuntime({
+      "agent:main:sms:android-gateway": {
+        sessionId: "existing-session",
+        sessionFile: "/tmp/openclaw-sessions/existing-session.jsonl",
+        provider: "openai",
+        model: "gpt-5.5",
+        authProfileOverride: "openai-codex:work",
+        authProfileOverrideSource: "user",
+      },
+    });
+    const handler = new SmsInboundHandler({
+      config,
+      logger,
+      onProcessingError: vi.fn(async () => undefined),
+      pluginConfig,
+      runtime: runtime as never,
+    });
+
+    handler.enqueue({
+      externalId: "sms-auth-profile-1",
+      from: "+447981839872",
+      receivedAt: Date.now(),
+      text: "hello",
+    });
+
+    await vi.waitFor(() => {
+      expect(runtime.agent.runEmbeddedAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: "hello",
+          provider: "openai",
+          model: "gpt-5.5",
+          authProfileId: "openai-codex:work",
+          authProfileIdSource: "user",
+          sessionKey: "agent:main:sms:android-gateway",
+        }),
+      );
+    });
+  });
+
+  it("deduplicates live and recovery copies of the same inbound SMS", async () => {
+    mocks.routeGatewayTextSlashCommandIfSupportedMock.mockResolvedValue(false);
+    const { runtime } = buildRuntime();
+    const handler = new SmsInboundHandler({
+      config,
+      logger,
+      onProcessingError: vi.fn(async () => undefined),
+      pluginConfig,
+      runtime: runtime as never,
+    });
+    const receivedAt = Date.now();
+
+    handler.enqueue({
+      externalId: "live-copy",
+      from: "+44 7981 839872",
+      receivedAt,
+      text: "Reply with exactly PHYSICAL_OK",
+    });
+    handler.enqueue({
+      externalId: "export-copy",
+      from: "+447981839872",
+      receivedAt: receivedAt + 5_000,
+      text: " Reply   with exactly PHYSICAL_OK ",
+    });
+
+    await vi.waitFor(() => {
+      expect(runtime.agent.runEmbeddedAgent).toHaveBeenCalledTimes(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(runtime.agent.runEmbeddedAgent).toHaveBeenCalledTimes(1);
   });
 });

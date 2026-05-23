@@ -6,15 +6,8 @@ import os from "node:os";
 import path from "node:path";
 
 const DEFAULT_CONFIG = path.join(os.homedir(), ".openclaw", "openclaw.json");
-const STATE_PATH = path.join(os.homedir(), ".openclaw", "sms-bridge-call-alert-state.json");
-
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
-
-function writeJson(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function readPluginConfig() {
@@ -39,23 +32,8 @@ function readPluginConfig() {
     adbPath: String(call.adbPath ?? process.env.ADB ?? "adb"),
     androidSerial: String(call.androidSerial ?? process.env.ANDROID_SERIAL ?? "").trim(),
     ringSeconds: Number.isFinite(call.ringSeconds) ? Number(call.ringSeconds) : 8,
-    cooldownSeconds: Number.isFinite(call.cooldownSeconds) ? Number(call.cooldownSeconds) : 300,
-    maxPerDay: Number.isFinite(call.maxPerDay) ? Number(call.maxPerDay) : 3,
     dryRun: process.env.SMS_BRIDGE_CALL_ALERT_DRY_RUN === "1",
   };
-}
-
-function readState() {
-  try {
-    return readJson(STATE_PATH);
-  } catch {
-    return { attempts: [], lastAttemptAt: 0 };
-  }
-}
-
-function pruneAttempts(attempts, now) {
-  const windowStart = now - 24 * 60 * 60 * 1000;
-  return attempts.filter((timestamp) => typeof timestamp === "number" && timestamp >= windowStart);
 }
 
 function execAdb(config, args) {
@@ -150,30 +128,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const now = Date.now();
-    const state = readState();
-    const attempts = pruneAttempts(Array.isArray(state.attempts) ? state.attempts : [], now);
-    const lastAttemptAt = typeof state.lastAttemptAt === "number" ? state.lastAttemptAt : 0;
-    const elapsedSeconds = Math.floor((now - lastAttemptAt) / 1000);
-
-    if (config.maxPerDay === 0 || attempts.length >= config.maxPerDay) {
-      sendJson(res, 429, { status: "blocked", blockedBy: "daily-limit" });
-      return;
-    }
-    if (lastAttemptAt > 0 && elapsedSeconds < config.cooldownSeconds) {
-      sendJson(res, 429, {
-        status: "blocked",
-        blockedBy: "cooldown",
-        retryAfterSeconds: config.cooldownSeconds - elapsedSeconds,
-      });
-      return;
-    }
-
     const result = await triggerCall(config);
-    if (!result.dryRun) {
-      attempts.push(now);
-      writeJson(STATE_PATH, { attempts, lastAttemptAt: now });
-    }
     sendJson(res, 202, {
       status: result.dryRun ? "dry-run" : "requested",
       ringSeconds: config.ringSeconds,
